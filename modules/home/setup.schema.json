@@ -1,0 +1,8 @@
+{
+  "file": "home.yml",
+  "label": "Homepage",
+  "description": "Homepage layout, sections, and authors configuration",
+  "editor": "custom",
+  "component": "./setup/HomeEditor.vue",
+  "configKey": "home_module"
+}

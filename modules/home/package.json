@@ -1,0 +1,20 @@
+{
+  "name": "taxonpages-module-home",
+  "version": "0.2.0",
+  "description": "A fancy homepage module for TaxonPages",
+  "taxonpages": {
+    "type": "module",
+    "entry": "./router/index.js"
+  },
+  "files": [
+    "components",
+    "router",
+    "views",
+    "setup",
+    "setup.schema.json"
+  ],
+  "peerDependencies": {
+    "vue": "^3.0.0"
+  },
+  "license": "MIT"
+}
