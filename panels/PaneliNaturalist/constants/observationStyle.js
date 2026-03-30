@@ -5,5 +5,5 @@ export const OBSERVATION_ASPECT_CLASS = {
 
 export const COUNT_CLASS = {
   small: '',
-  medium: 'md:p-2'
+  medium: 'md:px-2 md:py-1'
 }

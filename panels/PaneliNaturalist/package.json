@@ -1,0 +1,28 @@
+{
+  "name": "@jlpereira/taxonpages-panel-inaturalist",
+  "version": "1.0.0",
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages panel that displays iNaturalist observations for a given taxon",
+  "taxonpages": {
+    "type": "panel",
+    "entry": "./main.js",
+    "setupSchema": "./setup.schema.json"
+  },
+  "files": [
+    "main.js",
+    "PaneliNaturalist.vue",
+    "components",
+    "constants",
+    "utils",
+    "setup.schema.json"
+  ],
+  "peerDependencies": {
+    "vue": "^3.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.0.0"
+  },
+  "license": "MIT"
+}

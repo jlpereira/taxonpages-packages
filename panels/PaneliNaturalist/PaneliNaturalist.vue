@@ -55,16 +55,11 @@ const props = defineProps({
     default: 'Observations'
   },
 
-  ancestorTaxonId: {
-    type: Number,
-    default: undefined
-  },
-
   iconicTaxa: {
     type: Array,
     default: [],
-    validator() {
-      return [
+    validator(value) {
+      const allowed = [
         'Actinopterygii',
         'Amphibia',
         'Animalia',
@@ -79,6 +74,7 @@ const props = defineProps({
         'Protozoa',
         'Reptilia'
       ]
+      return value.every((v) => allowed.includes(v))
     }
   },
 
@@ -90,8 +86,8 @@ const props = defineProps({
   thumbnailSize: {
     type: String,
     default: 'small',
-    validator() {
-      return ['small', 'medium']
+    validator(value) {
+      return ['small', 'medium'].includes(value)
     }
   },
 
@@ -103,8 +99,8 @@ const props = defineProps({
   qualityGrade: {
     type: String,
     default: 'research',
-    validator() {
-      return ['research', 'casual', 'needs_id']
+    validator(value) {
+      return ['research', 'casual', 'needs_id'].includes(value)
     }
   },
 

@@ -14,7 +14,7 @@
     />
     <div
       :class="[
-        'absolute text-xs text-white bg-black/50 font-medium bottom-0 right-0 rounded-tl-md p-1',
+        'absolute text-xs text-white bg-black/50 font-medium bottom-0 right-0 rounded-tl-md px-1 py-0.5',
         COUNT_CLASS[thumbnailSize]
       ]"
       v-if="showImageCount && images.length > 1"
@@ -62,15 +62,6 @@ const props = defineProps({
 const index = ref(0)
 const isViewerVisible = ref(false)
 
-const altImage = computed(() => {
-  const { attribution } = props.observation.observationPhotos[0]
-  const text = `(iNaturalist observation ${props.observation.id})`
-
-  return [props.observation.taxon, attribution.label, text]
-    .filter(Boolean)
-    .join(' | ')
-})
-
 const images = computed(() =>
   props.observation.observationPhotos.map((item) => {
     return {
@@ -80,4 +71,13 @@ const images = computed(() =>
     }
   })
 )
+
+const altImage = computed(() => {
+  const { attribution } = images.value[0]
+  const text = `(iNaturalist observation ${props.observation.id})`
+
+  return [props.observation.taxon, attribution.label, text]
+    .filter(Boolean)
+    .join(' | ')
+})
 </script>

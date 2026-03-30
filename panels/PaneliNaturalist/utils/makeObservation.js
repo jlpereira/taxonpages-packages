@@ -2,9 +2,9 @@ import { IMAGE_SIZE } from '../constants/imageSize.js'
 
 function makeImageUrlSizes(url) {
   return Object.fromEntries(
-    Object.entries(IMAGE_SIZE).map(([key, value]) => [
+    Object.entries(IMAGE_SIZE).map(([key, iNatSize]) => [
       key,
-      url.replace(/square(?=\.)/, value)
+      url.replace(/square(?=\.)/, iNatSize)
     ])
   )
 }
