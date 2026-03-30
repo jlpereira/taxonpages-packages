@@ -22,15 +22,15 @@
         @dragend="onDragEnd"
         @toggle="toggleSection(key, $event)"
       >
-        <template v-if="key === 'landscape'">
+        <template v-if="key === 'hero'">
           <HeroConfig
             :model-value="configValue.hero || {}"
             @update:model-value="updateSection('hero', $event)"
           />
           <hr class="border-base-border my-4">
           <ImagesConfig
-            :model-value="landscapeImages"
-            @update:model-value="updateLandscapeImages($event)"
+            :model-value="heroImages"
+            @update:model-value="updateHeroImages($event)"
           />
         </template>
         <DataConfig
@@ -99,10 +99,10 @@ const configValue = computed(() => {
   return configData[fileName.value]?.[configKey.value] || {}
 })
 
-const DEFAULT_ORDER = ['landscape', 'data', 'description', 'authors', 'announcements', 'terms']
+const DEFAULT_ORDER = ['hero', 'data', 'description', 'authors', 'announcements', 'terms']
 
 const SECTION_LABELS = {
-  landscape: 'Landscape / Hero Images',
+  hero: 'Hero',
   data: 'Project Statistics',
   description: 'Description',
   authors: 'Authors',
@@ -111,7 +111,7 @@ const SECTION_LABELS = {
 }
 
 const SECTION_DESCRIPTIONS = {
-  landscape: 'Image carousel with hero title, subtitle, and search bar',
+  hero: 'Image carousel with hero title, subtitle, and search bar',
   data: 'Statistics counters showing project data (species, citations, images, etc.)',
   description: 'Text paragraphs describing the project',
   authors: 'Contributors and authors grouped by sections',
@@ -136,13 +136,13 @@ function updateSection(key, value) {
   markDirty(updated)
 }
 
-const landscapeImages = computed(() => {
-  return configValue.value.landscape?.images || []
+const heroImages = computed(() => {
+  return configValue.value.hero?.images || []
 })
 
-function updateLandscapeImages(images) {
-  const landscape = { ...(configValue.value.landscape || {}), images }
-  updateSection('landscape', landscape)
+function updateHeroImages(images) {
+  const hero = { ...(configValue.value.hero || {}), images }
+  updateSection('hero', hero)
 }
 
 function toggleSection(key, enabled) {

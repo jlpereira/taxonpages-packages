@@ -26,25 +26,25 @@
 import { shallowRef, triggerRef } from 'vue'
 import { makeAPIRequest } from '@/utils/request'
 
-import IconAudio from '../Icon/IconAudio.vue'
-import IconBug from '../Icon/IconBug.vue'
-import IconImage from '../Icon/IconImage.vue'
-import IconMicroscope from '../Icon/IconMicroscope.vue'
-import IconReference from '../Icon/IconReference.vue'
-import IconOk from '../Icon/IconOk.vue'
-import IconCitation from '../Icon/iconCitation.vue'
+import IconAudio from '../../icons/IconAudio.vue'
+import IconBug from '../../icons/IconBug.vue'
+import IconImage from '../../icons/IconImage.vue'
+import IconMicroscope from '../../icons/IconMicroscope.vue'
+import IconReference from '../../icons/IconReference.vue'
+import IconOk from '../../icons/IconOk.vue'
+import IconCitation from '../../icons/IconCitation.vue'
 
-import DataType from './Data/DataType.vue'
+import DataType from './DataType.vue'
 
 const TYPES = {
   validSpecies: 'Valid species',
   validExtantSpecies: 'Valid extant species',
   taxonNames: 'Taxon names',
   projectSources: 'Project sources',
-  mediaSounds: 'Media sounds',
-  collectionObjects: 'Collection objects',
   citations: 'Citations',
-  images: 'Images'
+  images: 'Images',
+  mediaSounds: 'Media sounds',
+  collectionObjects: 'Collection objects'
 }
 
 const ICONS = {

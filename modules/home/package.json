@@ -1,7 +1,10 @@
 {
   "name": "taxonpages-module-home",
-  "version": "0.2.0",
-  "description": "A fancy homepage module for TaxonPages",
+  "version": "1.0.0",
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A fancy homepage module for TaxonPages inspirend by the OSF homepage",
   "taxonpages": {
     "type": "module",
     "entry": "./router/index.js"

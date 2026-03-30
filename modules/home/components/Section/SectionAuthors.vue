@@ -25,36 +25,40 @@
           </div>
         </template>
 
-        <div class="my-4">
+        <div
+          v-if="showFooter && footerText"
+          class="my-4"
+        >
           <hr class="border-b-base-border" />
           <div class="flex flex-col justify-center items-center">
-            <OSFLogo
-              class="xl:hidden w-40 text-primary-color right-0 dark:text-base-content"
+            <img
+              v-if="logoImage"
+              :src="logoImage"
+              class="xl:hidden w-40 right-0"
             />
-            <p class="text-center">
-              With the cooperation of
-              <a
-                class="whitespace-nowrap"
-                href="https://orthsoc.org/"
-                >The Orthopterists' Society</a
-              >
-            </p>
+            <p
+              class="text-center"
+              v-html="footerText"
+            />
           </div>
         </div>
       </div>
-      <OSFLogo
-        class="hidden xl:block opacity-10 w-[40rem] text-primary-color absolute right-0 bottom-56 dark:text-base-content"
+      <img
+        v-if="logoImage"
+        :src="logoImage"
+        class="hidden xl:block opacity-10 w-[40rem] absolute right-0 bottom-56"
       />
     </div>
   </section>
 </template>
 
 <script setup>
-import OSFLogo from '../OSFLogo.vue'
-
 const { home_module = {} } = __APP_ENV__
 const { authors: authorsConfig = {} } = home_module
 
 const sectionTitle = authorsConfig.title || 'Authors'
 const sections = authorsConfig.sections || []
+const footerText = authorsConfig.footerText || ''
+const showFooter = authorsConfig.showFooter ?? !!footerText
+const logoImage = authorsConfig.logoImage || null
 </script>

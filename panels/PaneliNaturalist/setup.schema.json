@@ -1,0 +1,69 @@
+{
+  "label": "iNaturalist Observations",
+  "fields": {
+    "iconicTaxa": {
+      "type": "select",
+      "label": "Iconic Taxa",
+      "description": "Recommended: Set this to match your project's taxonomic group. Without it, results may include unrelated observations from other taxa",
+      "options": [
+        "Actinopterygii",
+        "Amphibia",
+        "Animalia",
+        "Arachnida",
+        "Aves",
+        "Chromista",
+        "Fungi",
+        "Insecta",
+        "Mammalia",
+        "Mollusca",
+        "Plantae",
+        "Protozoa",
+        "Reptilia"
+      ],
+      "default": []
+    },
+    "title": {
+      "type": "string",
+      "label": "Panel Title",
+      "default": "Observations"
+    },
+    "perPage": {
+      "type": "number",
+      "label": "Results Per Page",
+      "description": "Number of observations to display per page",
+      "default": 60
+    },
+    "qualityGrade": {
+      "type": "select",
+      "label": "Quality Grade",
+      "description": "Filter by quality grade: 'research' = community-verified ID with location and date; 'needs_id' = awaiting community agreement; 'casual' = missing location, date, or flagged as not wild",
+      "options": ["research", "casual", "needs_id"],
+      "default": "research"
+    },
+    "thumbnailSize": {
+      "type": "select",
+      "label": "Thumbnail Size",
+      "description": "Size of observation thumbnails",
+      "options": ["small", "medium"],
+      "default": "small"
+    },
+    "columnsMobile": {
+      "type": "number",
+      "label": "Columns (Mobile)",
+      "description": "Number of columns on mobile screens (1-6)",
+      "default": 3
+    },
+    "columnsDesktop": {
+      "type": "number",
+      "label": "Columns (Desktop)",
+      "description": "Number of columns on desktop screens (1-6)",
+      "default": 6
+    },
+    "showImageCount": {
+      "type": "boolean",
+      "label": "Show Image Count",
+      "description": "Display a badge showing the number of additional photos available for each observation",
+      "default": true
+    }
+  }
+}

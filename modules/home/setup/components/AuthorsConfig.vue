@@ -45,6 +45,46 @@
     <p v-if="!sections.length" class="text-sm text-base-soft italic py-3">
       No author groups added yet.
     </p>
+
+    <!-- Logo image -->
+    <div class="mt-6 mb-4">
+      <label class="block text-sm font-medium text-base-content mb-1.5">Logo Image URL</label>
+      <input
+        type="text"
+        class="tp-input"
+        :value="modelValue.logoImage || ''"
+        placeholder="https://example.com/logo.png"
+        @input="update('logoImage', $event.target.value || undefined)"
+      >
+      <p class="text-xs text-base-soft mt-1">Optional. URL or path to a logo image displayed in the authors section.</p>
+    </div>
+
+    <!-- Footer -->
+    <div class="mt-4 mb-4">
+      <label class="flex items-center gap-2 text-sm font-medium text-base-content mb-1.5">
+        <input
+          type="checkbox"
+          class="tp-checkbox"
+          :checked="modelValue.showFooter ?? false"
+          @change="update('showFooter', $event.target.checked)"
+        >
+        Show Footer
+      </label>
+    </div>
+
+    <div
+      v-if="modelValue.showFooter"
+      class="mb-4"
+    >
+      <label class="block text-sm font-medium text-base-content mb-1.5">Footer Text</label>
+      <input
+        type="text"
+        class="tp-input"
+        :value="modelValue.footerText || ''"
+        placeholder="With the cooperation of..."
+        @input="update('footerText', $event.target.value || undefined)"
+      >
+    </div>
   </div>
 </template>
 

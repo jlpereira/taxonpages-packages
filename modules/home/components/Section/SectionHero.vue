@@ -1,7 +1,7 @@
 <template>
   <section>
     <div class="relative box-border">
-      <ImageCarrousel :images="images">
+      <ImageCarousel :images="images">
         <div
           class="flex flex-col justify-center sm:items-center w-full h-full gap-4 bg-black/25"
         >
@@ -28,19 +28,19 @@
             />
           </div>
         </div>
-      </ImageCarrousel>
+      </ImageCarousel>
     </div>
   </section>
 </template>
 
 <script setup>
-import ImageCarrousel from '../ImageCarrousel.vue'
+import ImageCarousel from '../shared/ImageCarousel.vue'
 
 const { project_name, home_module = {} } = __APP_ENV__
-const { hero = {}, landscape = {} } = home_module
+const { hero: heroConfig = {} } = home_module
 
-const heroTitle = hero.title || project_name
-const heroSubtitle = hero.subtitle || ''
-const heroDescription = hero.description || ''
-const images = landscape.images || []
+const heroTitle = heroConfig.title || project_name
+const heroSubtitle = heroConfig.subtitle || ''
+const heroDescription = heroConfig.description || ''
+const images = heroConfig.images || []
 </script>

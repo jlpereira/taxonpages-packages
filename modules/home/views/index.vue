@@ -18,20 +18,20 @@
 
 <script setup>
 import { computed } from 'vue'
-import SectionAuthor from '../components/Section/SectionAuthor.vue'
-import SectionData from '../components/Section/SectionData.vue'
-import SectionLandscape from '../components/Section/SectionLandscape.vue'
+import SectionAuthors from '../components/Section/SectionAuthors.vue'
+import SectionData from '../components/Section/SectionData/SectionData.vue'
+import SectionHero from '../components/Section/SectionHero.vue'
 import SectionDescription from '../components/Section/SectionDescription.vue'
 import SectionTerms from '../components/Section/SectionTerms.vue'
 import SectionAnnouncements from '../components/Section/SectionAnnouncements.vue'
 
-const DEFAULT_ORDER = ['landscape', 'data', 'description', 'authors', 'announcements', 'terms']
+const DEFAULT_ORDER = ['hero', 'data', 'description', 'authors', 'announcements', 'terms']
 
 const SECTION_COMPONENTS = {
-  landscape: SectionLandscape,
+  hero: SectionHero,
   data: SectionData,
   description: SectionDescription,
-  authors: SectionAuthor,
+  authors: SectionAuthors,
   announcements: SectionAnnouncements,
   terms: SectionTerms
 }

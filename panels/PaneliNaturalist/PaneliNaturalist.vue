@@ -13,14 +13,16 @@
         No records found.
       </div>
 
-      <div class="flex flex-row flex-wrap gap-2">
+      <div :class="gridClass">
         <template
           v-for="observation in observations"
           :key="observation.id"
         >
           <ObservationItem
-            v-if="observation?.observationPhotos[0]"
+            v-if="observation?.observationPhotos?.length"
             :observation="observation"
+            :thumbnail-size="thumbnailSize"
+            :show-image-count="showImageCount"
           />
         </template>
       </div>
@@ -45,6 +47,7 @@ import { computed, ref, onMounted } from 'vue'
 import axios from 'axios'
 import ObservationItem from './components/ObservationItem.vue'
 import { makeObservation } from './utils'
+import { COLS_MOBILE, COLS_DESKTOP } from './constants/gridColumns.js'
 
 const props = defineProps({
   title: {
@@ -59,23 +62,22 @@ const props = defineProps({
 
   iconicTaxa: {
     type: Array,
-    default: ['Insecta'],
+    default: [],
     validator() {
       return [
-        'Plantae',
-        'Animalia',
-        'Mollusca',
-        'Reptilia',
-        'Aves',
-        'Amphibia',
         'Actinopterygii',
-        'Mammalia',
-        'Insecta',
+        'Amphibia',
+        'Animalia',
         'Arachnida',
-        'Fungi',
-        'Protozoa',
+        'Aves',
         'Chromista',
-        'unknown'
+        'Fungi',
+        'Insecta',
+        'Mammalia',
+        'Mollusca',
+        'Plantae',
+        'Protozoa',
+        'Reptilia'
       ]
     }
   },
@@ -87,9 +89,9 @@ const props = defineProps({
 
   thumbnailSize: {
     type: String,
-    default: 'thumb',
+    default: 'small',
     validator() {
-      return ['thumb', 'medium']
+      return ['small', 'medium']
     }
   },
 
@@ -106,10 +108,32 @@ const props = defineProps({
     }
   },
 
+  showImageCount: {
+    type: Boolean,
+    default: true
+  },
+
+  columnsMobile: {
+    type: Number,
+    default: 3
+  },
+
+  columnsDesktop: {
+    type: Number,
+    default: 6
+  },
+
   parameters: {
     type: Object,
-    default: () => {}
+    default: () => ({})
   }
+})
+
+const gridClass = computed(() => {
+  const mobile = COLS_MOBILE[props.columnsMobile] || COLS_MOBILE[3]
+  const desktop = COLS_DESKTOP[props.columnsDesktop] || COLS_DESKTOP[6]
+
+  return `grid ${mobile} ${desktop} gap-2`
 })
 
 const isLoading = ref(false)

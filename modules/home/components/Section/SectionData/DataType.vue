@@ -16,7 +16,7 @@
 </template>
 
 <script setup>
-import AnimateNumber from '../../AnimateNumber.vue'
+import AnimateNumber from '../../shared/AnimateNumber.vue'
 
 defineProps({
   icon: {
