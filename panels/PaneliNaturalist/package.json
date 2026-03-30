@@ -5,6 +5,11 @@
     "name": "José Luis Pereira"
   },
   "description": "A TaxonPages panel that displays iNaturalist observations for a given taxon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "panels/PaneliNaturalist"
+  },
   "taxonpages": {
     "type": "panel",
     "entry": "./main.js",
