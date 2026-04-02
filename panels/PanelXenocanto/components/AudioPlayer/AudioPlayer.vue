@@ -54,8 +54,10 @@
       />
     </div>
     <div class="flex flex-col justify-between">
-      <img :src="record.sono.small" alt="Sonogram" />
-      <img :src="record.osci.small" alt="Oscillogram" />
+      <img
+        :src="record.sono.small"
+        alt="Sonogram"
+      />
       <AudioProgress
         :current="currentTime"
         :duration="audioDuration"

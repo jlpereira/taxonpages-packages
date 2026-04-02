@@ -1,6 +1,11 @@
 {
   "label": "iNaturalist Observations",
   "fields": {
+    "title": {
+      "type": "string",
+      "label": "Panel Title",
+      "default": "Observations"
+    },
     "iconicTaxa": {
       "type": "select",
       "label": "Iconic Taxa",
@@ -21,11 +26,6 @@
         "Reptilia"
       ],
       "default": []
-    },
-    "title": {
-      "type": "string",
-      "label": "Panel Title",
-      "default": "Observations"
     },
     "perPage": {
       "type": "number",

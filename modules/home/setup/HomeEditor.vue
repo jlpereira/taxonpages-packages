@@ -2,12 +2,19 @@
   <div>
     <!-- Section order preview -->
     <div class="mb-4">
-      <label class="block text-sm font-medium text-base-content mb-2">Section Order</label>
-      <p class="text-xs text-base-soft mb-3">Drag sections to reorder. Toggle visibility with the switch.</p>
+      <label class="block text-sm font-medium text-base-content mb-2"
+        >Section Order</label
+      >
+      <p class="text-xs text-base-soft mb-3">
+        Drag sections to reorder. Toggle visibility with the switch.
+      </p>
     </div>
 
     <!-- Sortable section cards -->
-    <div ref="listRef" class="space-y-2 mb-5">
+    <div
+      ref="listRef"
+      class="space-y-2 mb-5"
+    >
       <SectionCard
         v-for="(key, index) in currentOrder"
         :key="key"
@@ -27,7 +34,7 @@
             :model-value="configValue.hero || {}"
             @update:model-value="updateSection('hero', $event)"
           />
-          <hr class="border-base-border my-4">
+          <hr class="border-base-border my-4" />
           <ImagesConfig
             :model-value="heroImages"
             @update:model-value="updateHeroImages($event)"
@@ -60,15 +67,28 @@
     <div class="flex items-center gap-3 mt-5">
       <button
         class="tp-btn tp-btn-primary"
-        :disabled="!isFileDirty(fileName)"
+        :disabled="!hasUnsavedChanges(fileName)"
         @click="saveConfig(fileName)"
       >
-        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+        <svg
+          class="w-4 h-4"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          stroke-width="2"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M5 13l4 4L19 7"
+          />
         </svg>
         Save Homepage
       </button>
-      <span v-if="isFileDirty(fileName)" class="text-xs text-warning font-medium">
+      <span
+        v-if="hasUnsavedChanges(fileName)"
+        class="text-xs text-warning font-medium"
+      >
         Unsaved changes
       </span>
     </div>
@@ -77,7 +97,6 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { useConfig } from '@setup/composables/useConfig.js'
 import SectionCard from './components/SectionCard.vue'
 import HeroConfig from './components/HeroConfig.vue'
 import DataConfig from './components/DataConfig.vue'
@@ -87,19 +106,47 @@ import TermsConfig from './components/TermsConfig.vue'
 import ImagesConfig from './components/ImagesConfig.vue'
 
 const props = defineProps({
-  section: { type: Object, required: true }
-})
+  section: {
+    type: Object,
+    required: true
+  },
 
-const { configData, setConfigValue, saveConfig, isFileDirty } = useConfig()
+  configData: {
+    type: Object,
+    required: true
+  },
+
+  setConfigValue: {
+    type: Function,
+    required: true
+  },
+
+  saveConfig: {
+    type: Function,
+    required: true
+  },
+
+  hasUnsavedChanges: {
+    type: Function,
+    required: true
+  }
+})
 
 const fileName = computed(() => props.section.file)
 const configKey = computed(() => props.section.configKey || 'home_module')
 
 const configValue = computed(() => {
-  return configData[fileName.value]?.[configKey.value] || {}
+  return props.configData[fileName.value]?.[configKey.value] || {}
 })
 
-const DEFAULT_ORDER = ['hero', 'data', 'description', 'authors', 'announcements', 'terms']
+const DEFAULT_ORDER = [
+  'hero',
+  'data',
+  'description',
+  'authors',
+  'announcements',
+  'terms'
+]
 
 const SECTION_LABELS = {
   hero: 'Hero',
@@ -127,13 +174,13 @@ function isSectionEnabled(key) {
   return configValue.value[key]?.enabled !== false
 }
 
-function markDirty(updated) {
-  setConfigValue(fileName.value, configKey.value, updated)
+function markUnsaved(updated) {
+  props.setConfigValue(fileName.value, configKey.value, updated)
 }
 
 function updateSection(key, value) {
   const updated = { ...configValue.value, [key]: value }
-  markDirty(updated)
+  markUnsaved(updated)
 }
 
 const heroImages = computed(() => {
@@ -169,7 +216,7 @@ function onDragOver(event, index) {
   dragIndex.value = index
 
   const updated = { ...configValue.value, sectionOrder: order }
-  markDirty(updated)
+  markUnsaved(updated)
 }
 
 function onDragEnd() {

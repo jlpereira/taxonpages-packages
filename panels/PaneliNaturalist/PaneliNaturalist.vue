@@ -44,7 +44,6 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import axios from 'axios'
 import ObservationItem from './components/ObservationItem.vue'
 import { makeObservation } from './utils'
 import { COLS_MOBILE, COLS_DESKTOP } from './constants/gridColumns.js'
@@ -116,7 +115,7 @@ const props = defineProps({
 
   columnsDesktop: {
     type: Number,
-    default: 6
+    default: 12
   },
 
   parameters: {
@@ -153,20 +152,16 @@ function parseSubgenus(name) {
 }
 
 async function resolveSubgenusId(genusName, subgenusName) {
-  const [genusResponse, subgenusResponse] = await Promise.all([
-    axios.get('https://api.inaturalist.org/v1/taxa', {
-      params: { q: genusName, rank: 'genus' }
-    }),
-    axios.get('https://api.inaturalist.org/v1/taxa', {
-      params: { q: subgenusName, rank: 'subgenus' }
-    })
+  const [genusData, subgenusData] = await Promise.all([
+    fetch(`https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: genusName, rank: 'genus' })}`).then((r) => r.json()),
+    fetch(`https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: subgenusName, rank: 'subgenus' })}`).then((r) => r.json())
   ])
 
-  const genus = genusResponse.data.results.find((t) => t.name === genusName)
+  const genus = genusData.results.find((t) => t.name === genusName)
 
   if (!genus) return null
 
-  const subgenus = subgenusResponse.data.results.find(
+  const subgenus = subgenusData.results.find(
     (t) =>
       t.name === subgenusName &&
       t.ancestor_ids.includes(genus.id) &&
@@ -194,11 +189,9 @@ function loadObservations(params = {}) {
     observationParams.taxon_name = taxonName.value
   }
 
-  axios
-    .get('https://api.inaturalist.org/v1/observations', {
-      params: observationParams
-    })
-    .then(({ data }) => {
+  fetch(`https://api.inaturalist.org/v1/observations?${new URLSearchParams(observationParams)}`)
+    .then((response) => response.json())
+    .then((data) => {
       observations.value = data.results.map(makeObservation)
       pagination.value = {
         page: data.page,

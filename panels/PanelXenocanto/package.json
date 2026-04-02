@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/jlpereira/taxonpages-packages.git",
-    "directory": "panels/PaneliNaturalist"
+    "directory": "panels/PanelXenocanto"
   },
   "taxonpages": {
     "type": "panel",
@@ -18,10 +18,8 @@
   },
   "files": [
     "main.js",
-    "PaneliNaturalist.vue",
+    "PanelXenocanto.vue",
     "components",
-    "constants",
-    "utils",
     "setup.schema.json"
   ],
   "peerDependencies": {

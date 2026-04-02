@@ -3,28 +3,28 @@
     <VCardHeader>
       <span>
         xeno-canto
-        <span v-if="store.list.length">({{ store.list.length }})</span>
+        <span v-if="list.length">({{ list.length }})</span>
       </span>
     </VCardHeader>
     <VCardContent class="min-h-[6rem]">
       <ClientOnly>
-        <VSpinner v-if="store.isLoading" />
+        <VSpinner v-if="isLoading" />
       </ClientOnly>
 
       <div
-        v-if="!store.isLoading && !store.list.length"
+        v-if="!isLoading && !list.length"
         class="text-xl text-center my-8"
       >
         No records found.
       </div>
 
-      <template v-if="!store.isLoading && store.list.length">
+      <template v-if="!isLoading && list.length">
         <div
-          v-if="store.currentRecord"
+          v-if="currentRecord"
           class="flex flex-col md:flex-row flex-wrap gap-4 justify-start"
         >
-          <AudioPlayer :record="store.currentRecord" />
-          <RecordInformation :record="store.currentRecord" />
+          <AudioPlayer :record="currentRecord" />
+          <RecordInformation :record="currentRecord" />
         </div>
 
         <VTable class="my-4 overflow-x-auto">
@@ -44,12 +44,11 @@
               v-for="item in pages[currentPage]"
               :key="item.id"
               :class="[
-                store.currentRecord.id === item.id &&
-                  'bg-primary-color bg-opacity-20'
+                currentRecord.id === item.id && 'bg-primary-color bg-opacity-20'
               ]"
             >
               <VTableBodyCell>
-                <ButtonPlay @click="() => (store.currentRecord = item)" />
+                <ButtonPlay @click="() => (currentRecord = item)" />
               </VTableBodyCell>
               <VTableBodyCell>{{ getRecordTaxonName(item) }}</VTableBodyCell>
               <VTableBodyCell>{{ item.cnt }}</VTableBodyCell>
@@ -84,7 +83,7 @@
           </VTableBody>
         </VTable>
         <VPagination
-          :total="store.list.length"
+          :total="list.length"
           :per="MAX_PER_PAGE"
           v-model="currentPage"
         />
@@ -98,7 +97,6 @@ import { computed, onMounted, ref } from 'vue'
 import ButtonPlay from './components/ButtonPlay.vue'
 import AudioPlayer from './components/AudioPlayer/AudioPlayer.vue'
 import RecordInformation from './components/RecordInformation.vue'
-import { useXenocantoStore } from './store/store'
 
 const MAX_PER_PAGE = 10
 
@@ -106,14 +104,35 @@ const props = defineProps({
   taxon: {
     type: Object,
     required: true
+  },
+
+  apiKey: {
+    type: String,
+    default: undefined
+  },
+
+  group: {
+    type: String,
+    default: undefined,
+    validator(value) {
+      return ['bird', 'grasshoppers', 'bats'].includes(value)
+    }
+  },
+
+  apiUrl: {
+    type: String,
+    default: 'https://xeno-canto.org/api/3/recordings',
+    required: true
   }
 })
 
 const currentPage = ref(1)
-const store = useXenocantoStore()
+const currentRecord = ref(null)
+const list = ref([])
+const isLoading = ref(false)
 
 const pages = computed(() => {
-  const tmp = [...store.list]
+  const tmp = [...list.value]
   const newList = [[]]
 
   while (tmp.length > 0) {
@@ -127,8 +146,51 @@ function getRecordTaxonName(record) {
   return [record.gen, record.sp, record.ssp].filter(Boolean).join(' ')
 }
 
+function buildQuery(taxon) {
+  const name = taxon.expanded_name.replace(/\s*\([^)]+\)/g, '')
+  const [genus, species, subspecies] = name.trim().split(/\s+/)
+
+  const parts = [`gen:${genus}`]
+
+  if (species) {
+    parts.push(`sp:${species}`)
+  }
+
+  if (subspecies) {
+    parts.push(`ssp:${subspecies}`)
+  }
+
+  if (props.group) {
+    parts.push(`grp:${props.group}`)
+  }
+
+  return parts.join('+')
+}
+
+async function loadRecords(taxon) {
+  isLoading.value = true
+  list.value = []
+
+  const payload = {
+    query: buildQuery(taxon),
+    key: props.apiKey
+  }
+
+  try {
+    const response = await fetch(
+      `${props.apiUrl}?${new URLSearchParams(payload)}`
+    )
+    const data = await response.json()
+
+    list.value = data?.recordings || []
+    currentRecord.value = list.value[0]
+  } finally {
+    isLoading.value = false
+  }
+}
+
 onMounted(() => {
-  store.loadRecords(props.taxon)
+  loadRecords(props.taxon)
 })
 
 function makeCCImgUrl(license) {

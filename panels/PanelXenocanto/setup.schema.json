@@ -1,0 +1,23 @@
+{
+  "label": "Xeno-canto Recordings",
+  "fields": {
+    "apiUrl": {
+      "type": "string",
+      "label": "API URL",
+      "description": "Endpoint URL for fetching xeno-canto recordings",
+      "default": "https://xeno-canto.org/api/3/recordings"
+    },
+    "group": {
+      "type": "select",
+      "label": "Animal Group",
+      "description": "Filter recordings by animal group. Leave empty to include all groups",
+      "options": ["bird", "grasshoppers", "bats"],
+      "default": ""
+    },
+    "apiKey": {
+      "type": "string",
+      "label": "API Key",
+      "description": "Optional API key for xeno-canto"
+    }
+  }
+}
