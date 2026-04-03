@@ -1,11 +1,11 @@
 {
-  "name": "@jlpereira/taxonpages-panel-inaturalist",
+  "name": "@jlpereira/taxonpages-panel-xeno-canto",
   "version": "1.0.0",
   "private": false,
   "author": {
     "name": "José Luis Pereira"
   },
-  "description": "A TaxonPages panel that displays iNaturalist observations for a given taxon",
+  "description": "A TaxonPages panel that displays Xeno-canto audio recordings for a given taxon",
   "repository": {
     "type": "git",
     "url": "https://github.com/jlpereira/taxonpages-packages.git",
@@ -22,8 +22,5 @@
     "components",
     "setup.schema.json"
   ],
-  "peerDependencies": {
-    "vue": "^3.0.0"
-  },
   "license": "MIT"
 }
