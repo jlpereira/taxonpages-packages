@@ -1,5 +1,5 @@
 {
-  "name": "taxonpages-module-home",
+  "name": "@jlpereira/taxonpages-module-homepage",
   "version": "1.0.0",
   "author": {
     "name": "José Luis Pereira"
@@ -16,8 +16,5 @@
     "setup",
     "setup.schema.json"
   ],
-  "peerDependencies": {
-    "vue": "^3.0.0"
-  },
   "license": "MIT"
 }
