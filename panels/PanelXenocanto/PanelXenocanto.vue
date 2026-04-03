@@ -3,7 +3,7 @@
     <VCardHeader>
       <span>
         xeno-canto
-        <span v-if="list.length">({{ list.length }})</span>
+        <span v-if="list.length">({{ pagination.total_results }})</span>
       </span>
     </VCardHeader>
     <VCardContent class="min-h-[6rem]">
@@ -41,7 +41,7 @@
           </VTableHeader>
           <VTableBody>
             <VTableBodyRow
-              v-for="item in pages[currentPage]"
+              v-for="item in list"
               :key="item.id"
               :class="[
                 currentRecord.id === item.id && 'bg-primary-color bg-opacity-20'
@@ -83,9 +83,16 @@
           </VTableBody>
         </VTable>
         <VPagination
-          :total="list.length"
-          :per="MAX_PER_PAGE"
-          v-model="currentPage"
+          v-if="list.length"
+          class="mt-4"
+          v-model="pagination.page"
+          :total="pagination.total_results"
+          :per="pagination.per_page"
+          @select="
+            (value) => {
+              loadRecords({ page: value, taxon: props.taxon })
+            }
+          "
         />
       </template>
     </VCardContent>
@@ -98,7 +105,8 @@ import ButtonPlay from './components/ButtonPlay.vue'
 import AudioPlayer from './components/AudioPlayer/AudioPlayer.vue'
 import RecordInformation from './components/RecordInformation.vue'
 
-const MAX_PER_PAGE = 10
+const MIN_PER_PAGE = 50
+const MAX_PER_PAGE = 500
 
 const props = defineProps({
   taxon: {
@@ -119,27 +127,35 @@ const props = defineProps({
     }
   },
 
+  perPage: {
+    type: Number,
+    default: MIN_PER_PAGE
+  },
+
   apiUrl: {
     type: String,
-    default: 'https://xeno-canto.org/api/3/recordings',
-    required: true
+    default: 'https://xeno-canto.org/api/3/recordings'
   }
 })
 
 const currentPage = ref(1)
 const currentRecord = ref(null)
 const list = ref([])
-const isLoading = ref(false)
+const isLoading = ref(true)
+const pagination = ref({
+  page: 1,
+  per_page: MAX_PER_PAGE,
+  total_results: 0
+})
 
-const pages = computed(() => {
-  const tmp = [...list.value]
-  const newList = [[]]
-
-  while (tmp.length > 0) {
-    newList.push(tmp.splice(0, MAX_PER_PAGE))
+const perPage = computed(() => {
+  if (props.perPage < MIN_PER_PAGE) {
+    return MIN_PER_PAGE
+  } else if (props.perPage > MAX_PER_PAGE) {
+    return MAX_PER_PAGE
+  } else {
+    return props.perPage
   }
-
-  return newList
 })
 
 function getRecordTaxonName(record) {
@@ -167,13 +183,18 @@ function buildQuery(taxon) {
   return parts.join('+')
 }
 
-async function loadRecords(taxon) {
+async function loadRecords({ taxon, page = 1 }) {
   isLoading.value = true
   list.value = []
 
   const payload = {
     query: buildQuery(taxon),
-    key: props.apiKey
+    per_page: perPage.value,
+    page
+  }
+
+  if (props.apiKey) {
+    payload.key = props.apiKey
   }
 
   try {
@@ -184,13 +205,19 @@ async function loadRecords(taxon) {
 
     list.value = data?.recordings || []
     currentRecord.value = list.value[0]
+
+    pagination.value = {
+      page: Number(data.page),
+      per_page: perPage.value,
+      total_results: Number(data.numRecordings)
+    }
   } finally {
     isLoading.value = false
   }
 }
 
 onMounted(() => {
-  loadRecords(props.taxon)
+  loadRecords({ taxon: props.taxon, page: currentPage.value })
 })
 
 function makeCCImgUrl(license) {

@@ -32,7 +32,7 @@
         v-model="pagination.page"
         :total="pagination.total_results"
         :per="pagination.per_page"
-        @update:modelValue="
+        @select="
           (value) => {
             loadObservations({ page: value, per_page: perPage })
           }
@@ -131,7 +131,7 @@ const gridClass = computed(() => {
   return `grid ${mobile} ${desktop} gap-2`
 })
 
-const isLoading = ref(false)
+const isLoading = ref(true)
 const observations = ref([])
 const pagination = ref({
   page: 1,
@@ -153,8 +153,12 @@ function parseSubgenus(name) {
 
 async function resolveSubgenusId(genusName, subgenusName) {
   const [genusData, subgenusData] = await Promise.all([
-    fetch(`https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: genusName, rank: 'genus' })}`).then((r) => r.json()),
-    fetch(`https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: subgenusName, rank: 'subgenus' })}`).then((r) => r.json())
+    fetch(
+      `https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: genusName, rank: 'genus' })}`
+    ).then((r) => r.json()),
+    fetch(
+      `https://api.inaturalist.org/v1/taxa?${new URLSearchParams({ q: subgenusName, rank: 'subgenus' })}`
+    ).then((r) => r.json())
   ])
 
   const genus = genusData.results.find((t) => t.name === genusName)
@@ -189,7 +193,9 @@ function loadObservations(params = {}) {
     observationParams.taxon_name = taxonName.value
   }
 
-  fetch(`https://api.inaturalist.org/v1/observations?${new URLSearchParams(observationParams)}`)
+  fetch(
+    `https://api.inaturalist.org/v1/observations?${new URLSearchParams(observationParams)}`
+  )
     .then((response) => response.json())
     .then((data) => {
       observations.value = data.results.map(makeObservation)
