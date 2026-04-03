@@ -109,13 +109,13 @@ const props = defineProps({
   },
 
   columnsMobile: {
-    type: Number,
-    default: 3
+    type: [Number, String],
+    default: 'auto'
   },
 
   columnsDesktop: {
-    type: Number,
-    default: 12
+    type: [Number, String],
+    default: 'auto'
   },
 
   parameters: {
@@ -125,8 +125,17 @@ const props = defineProps({
 })
 
 const gridClass = computed(() => {
-  const mobile = COLS_MOBILE[props.columnsMobile] || COLS_MOBILE[3]
-  const desktop = COLS_DESKTOP[props.columnsDesktop] || COLS_DESKTOP[6]
+  const mobileValue = COLS_MOBILE[props.columnsMobile] || COLS_MOBILE[3]
+  const desktopValue = COLS_DESKTOP[props.columnsDesktop] || COLS_DESKTOP[6]
+
+  const mobile =
+    typeof mobileValue === 'object'
+      ? mobileValue[props.thumbnailSize]
+      : mobileValue
+  const desktop =
+    typeof desktopValue === 'object'
+      ? desktopValue[props.thumbnailSize]
+      : desktopValue
 
   return `grid ${mobile} ${desktop} gap-2`
 })

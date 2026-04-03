@@ -1,6 +1,6 @@
 {
   "name": "@jlpereira/taxonpages-panel-inaturalist",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": false,
   "author": {
     "name": "José Luis Pereira"
@@ -24,8 +24,5 @@
     "utils",
     "setup.schema.json"
   ],
-  "peerDependencies": {
-    "vue": "^3.0.0"
-  },
   "license": "MIT"
 }

@@ -1,4 +1,8 @@
 export const COLS_MOBILE = {
+  auto: {
+    small: 'grid-cols-[repeat(auto-fill,minmax(6rem,1fr))]',
+    medium: 'grid-cols-[repeat(auto-fill,minmax(9rem,1fr))]'
+  },
   1: 'grid-cols-1',
   2: 'grid-cols-2',
   3: 'grid-cols-3',
@@ -8,6 +12,10 @@ export const COLS_MOBILE = {
 }
 
 export const COLS_DESKTOP = {
+  auto: {
+    small: 'md:grid-cols-[repeat(auto-fill,minmax(6rem,1fr))]',
+    medium: 'md:grid-cols-[repeat(auto-fill,minmax(12rem,1fr))]'
+  },
   1: 'md:grid-cols-1',
   2: 'md:grid-cols-2',
   3: 'md:grid-cols-3',

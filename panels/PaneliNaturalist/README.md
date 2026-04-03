@@ -49,8 +49,8 @@ taxa_page:
               qualityGrade: research
               thumbnailSize: medium
               perPage: 30
-              columnsMobile: 2
-              columnsDesktop: 4
+              columnsMobile: auto
+              columnsDesktop: auto
               showImageCount: true
 ```
 
@@ -73,8 +73,8 @@ bind:
 | `perPage`        | Number  | `60`             | Number of observations per page                                                                                                                                                                                                                                         |
 | `qualityGrade`   | String  | `"research"`     | Observation quality filter (see below)                                                                                                                                                                                                                                  |
 | `thumbnailSize`  | String  | `"small"`        | Image size: `small` (square) or `medium` (3:2 ratio)                                                                                                                                                                                                                    |
-| `columnsMobile`  | Number  | `3`              | Grid columns on mobile (1–6)                                                                                                                                                                                                                                            |
-| `columnsDesktop` | Number  | `6`              | Grid columns on desktop (1–6)                                                                                                                                                                                                                                           |
+| `columnsMobile`  | Number \| String | `"auto"`         | Grid columns on mobile: `auto` or `1`–`6`. `auto` fills as many columns as the container width allows, adapting to the selected `thumbnailSize`                                                                                                                         |
+| `columnsDesktop` | Number \| String | `"auto"`         | Grid columns on desktop: `auto` or `1`–`12`. `auto` fills as many columns as the container width allows, adapting to the selected `thumbnailSize`                                                                                                                       |
 | `showImageCount` | Boolean | `true`           | Show a `+N` badge when an observation has multiple photos                                                                                                                                                                                                               |
 | `parameters`     | Object  | `{}`             | Additional iNaturalist API parameters (advanced, YAML-only)                                                                                                                                                                                                             |
 
