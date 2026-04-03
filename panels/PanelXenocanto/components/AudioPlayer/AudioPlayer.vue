@@ -71,6 +71,7 @@
       @playing="() => (isPlaying = true)"
       @pause="() => (isPlaying = false)"
       @timeupdate="handleUpdate"
+      @loadedmetadata="handleLoadedMetadata"
     />
   </div>
 </template>
@@ -89,7 +90,7 @@ const props = defineProps({
 
 const audioRef = ref(null)
 const isPlaying = ref(false)
-const audioDuration = ref(convertToSeconds(props.record.length))
+const audioDuration = ref(convertToSeconds(props.record.length) || 0)
 const currentTime = ref(0)
 const audioUrl = ref(getAudioLink(props.record))
 
@@ -138,9 +139,22 @@ function setTimePosition(time) {
 }
 
 function convertToSeconds(time) {
-  const [minutes, seconds] = time.split(':')
+  if (!time || typeof time !== 'string') return 0
 
-  return Number(minutes) * 60 + Number(seconds)
+  const parts = time.split(':').map(Number)
+
+  if (parts.some(isNaN)) return 0
+
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+
+  return parts[0] || 0
+}
+
+function handleLoadedMetadata(e) {
+  if (e.target.duration && isFinite(e.target.duration)) {
+    audioDuration.value = e.target.duration
+  }
 }
 
 function handleUpdate(e) {

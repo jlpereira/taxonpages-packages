@@ -44,7 +44,7 @@ const props = defineProps({
 const emit = defineEmits(['update'])
 
 const progressPorcent = computed(() =>
-  Math.floor((props.current / props.duration) * 100)
+  props.duration > 0 ? Math.floor((props.current / props.duration) * 100) : 0
 )
 
 function updateProgressBar(event) {
