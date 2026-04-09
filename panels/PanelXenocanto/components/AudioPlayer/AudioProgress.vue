@@ -7,16 +7,16 @@
     :aria-valuemax="Math.floor(duration)"
     :aria-valuenow="Math.floor(current)"
     :aria-valuetext="`${Math.floor(current)} of ${Math.floor(duration)} seconds`"
-    class="h-2 w-full bg-base-background cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-color"
+    class="h-2 w-full bg-base-background cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
     @click="updateProgressBar"
     @keydown="handleKeydown"
   >
     <div
-      class="h-full relative bg-primary-color"
+      class="h-full relative bg-primary"
       :style="{ width: progressPorcent + '%' }"
     >
       <div
-        class="absolute -right-2 bg-primary-color h-4 w-4 rounded-full -top-1"
+        class="absolute -right-2 bg-primary h-4 w-4 rounded-full -top-1"
         @mousedown="startDrag"
         @mousemove="handleDrag"
         @mouseup="endDrag"
@@ -65,7 +65,10 @@ function handleKeydown(e) {
     case 'ArrowRight':
     case 'ArrowUp':
       e.preventDefault()
-      emit('update', Math.min(Math.floor(props.current + step), Math.floor(props.duration)))
+      emit(
+        'update',
+        Math.min(Math.floor(props.current + step), Math.floor(props.duration))
+      )
       break
     case 'ArrowLeft':
     case 'ArrowDown':

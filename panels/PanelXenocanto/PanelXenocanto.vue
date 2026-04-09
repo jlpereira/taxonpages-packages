@@ -232,6 +232,8 @@ function getCCLicenseFromUrl(url) {
   const regex = /licenses\/([a-z-]+)\/\d+\.\d+/
   const match = url.match(regex)
 
+  if (!match) return null
+
   const [_, license] = match
 
   return makeCCImgUrl(license)

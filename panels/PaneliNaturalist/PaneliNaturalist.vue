@@ -55,7 +55,7 @@ const props = defineProps({
   },
 
   iconicTaxa: {
-    type: Array,
+    type: [String, Array],
     default: [],
     validator(value) {
       const allowed = [
@@ -73,7 +73,7 @@ const props = defineProps({
         'Protozoa',
         'Reptilia'
       ]
-      return value.every((v) => allowed.includes(v))
+      return allowed.includes(value) || value === ''
     }
   },
 
@@ -201,6 +201,13 @@ function loadObservations(params = {}) {
   } else {
     observationParams.taxon_name = taxonName.value
   }
+
+  Object.keys(observationParams).forEach((key) => {
+    const v = observationParams[key]
+    if (v == null || v === '' || (Array.isArray(v) && !v.length)) {
+      delete observationParams[key]
+    }
+  })
 
   fetch(
     `https://api.inaturalist.org/v1/observations?${new URLSearchParams(observationParams)}`
