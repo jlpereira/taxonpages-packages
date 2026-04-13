@@ -78,6 +78,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 const props = defineProps({
   list: {
@@ -86,6 +87,7 @@ const props = defineProps({
   }
 })
 
+const router = useRouter()
 const isModalVisible = ref(false)
 const selectedIds = ref([])
 
@@ -98,12 +100,10 @@ const isAllSelected = computed({
 function openImageViewer() {
   const ids = selectedIds.value.join('|')
 
-  window.open(`/image_matrices/0?otu_filter=${ids}`, '_self')
-}
-
-function openInteractiveKey() {
-  const ids = selectedIds.value.join('|')
-
-  window.open(`/interactive_keys/0?otu_filter=${ids}`, '_self')
+  router.push({
+    name: 'image-matrices-id',
+    params: { id: '0' },
+    query: { otu_filter: ids }
+  })
 }
 </script>
