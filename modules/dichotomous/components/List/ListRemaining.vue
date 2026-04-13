@@ -1,7 +1,7 @@
 <template>
-  <div class="p-4 [&_a]:no-underline">
+  <div class="p-4">
     <div class="flex justify-between items-center">
-      <h3 class="text-[1.17rem] font-bold">Remaining ({{ list.length }})</h3>
+      <h3 class="text-base font-medium">Remaining ({{ list.length }})</h3>
       <ListRemainingOptions :list="list" />
     </div>
     <ul class="text-sm mt-2">

@@ -1,13 +1,10 @@
 <template>
-  <div
-    id="vue-dichotomous-app"
-    class="shadow container mx-auto"
-  >
+  <div class="shadow container mx-auto">
     <VSpinner v-if="settings.isLoading" />
     <HeaderKey @reset="scrollPanelKey" />
     <div
       id="dichotomous-container"
-      class="grid grid-cols-2 grid-rows-2 gap-px bg-base-border max-h-[calc(100vh-16rem)] h-[calc(100vh-16rem)]"
+      class="grid grid-cols-2 grid-rows-2 gap-px bg-base-border max-h-[calc(100vh-17rem)] h-[calc(100vh-17rem)]"
     >
       <PanelKey
         ref="panelKey"
@@ -27,7 +24,7 @@
 
 <script setup>
 import { computed, useTemplateRef, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import useLeadStore from '../store/lead.js'
 import PanelKey from '../components/PanelKey.vue'
@@ -43,7 +40,6 @@ defineOptions({
 const store = useLeadStore()
 const settings = useSettingsStore()
 const route = useRoute()
-const router = useRouter()
 
 const panelKeyRef = useTemplateRef('panelKey')
 

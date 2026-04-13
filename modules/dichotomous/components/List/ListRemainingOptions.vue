@@ -3,7 +3,6 @@
     <VButton
       size="sm"
       type="button"
-      class="button normal-input button-default margin-small-bottom"
       @click="() => (isModalVisible = true)"
     >
       Select
@@ -61,15 +60,6 @@
             @click="() => (selectedIds = [...otuIds])"
           >
             Select all
-          </VButton>
-          <VButton
-            type="button"
-            size="sm"
-            class="text-xs"
-            :disabled="!selectedIds.length"
-            @click="openInteractiveKey"
-          >
-            View interactive key
           </VButton>
           <VButton
             type="button"
