@@ -1,0 +1,19 @@
+{
+  "name": "@jlpereira/taxonpages-module-dichotomous",
+  "version": "0.0.2",
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A dichotomous key interface module for TaxonPages",
+  "taxonpages": {
+    "type": "module",
+    "entry": "./router/index.js"
+  },
+  "files": [
+    "components",
+    "router",
+    "store",
+    "views"
+  ],
+  "license": "MIT"
+}
