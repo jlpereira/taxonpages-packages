@@ -1,0 +1,23 @@
+{
+  "name": "@jlpereira/taxonpages-specimen-records",
+  "version": "0.0.1",
+  "private": false,
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages panel that displays specimen records for a given taxon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "panels/PanelSpecimenRecords"
+  },
+  "taxonpages": {
+    "type": "panel",
+    "entry": "./main.js"
+  },
+  "files": [
+    "main.js",
+    "PanelSpecimenRecords.vue"
+  ],
+  "license": "MIT"
+}

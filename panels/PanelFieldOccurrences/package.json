@@ -1,0 +1,24 @@
+{
+  "name": "@jlpereira/taxonpages-panel-field-occurrences",
+  "version": "0.0.1",
+  "private": false,
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages panel that displays field occurrences for a given taxon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "panels/PanelFieldOccurrences"
+  },
+  "taxonpages": {
+    "type": "panel",
+    "entry": "./main.js"
+  },
+  "files": [
+    "main.js",
+    "PanelFieldOccurrences.vue",
+    "components"
+  ],
+  "license": "MIT"
+}

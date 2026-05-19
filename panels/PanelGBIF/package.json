@@ -1,0 +1,23 @@
+{
+  "name": "@jlpereira/taxonpages-panel-gbif-taxon-page",
+  "version": "0.0.1",
+  "private": false,
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages panel that links to its GBIF taxon page for a given taxon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "panels/PanelGBIF"
+  },
+  "taxonpages": {
+    "type": "panel",
+    "entry": "./main.js"
+  },
+  "files": [
+    "main.js",
+    "PanelGBIF.vue"
+  ],
+  "license": "MIT"
+}

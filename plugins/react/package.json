@@ -1,0 +1,30 @@
+{
+  "name": "@jlpereira/taxonpages-plugin-react",
+  "version": "0.0.1",
+  "type": "module",
+  "private": false,
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages plugin for integrating React components",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "plugins/react"
+  },
+  "taxonpages": {
+    "type": "plugin",
+    "entry": "./plugin.js"
+  },
+  "files": [
+    "plugin.js",
+    "components",
+    "vueSetup.js"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  }
+}

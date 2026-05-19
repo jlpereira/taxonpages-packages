@@ -1,0 +1,23 @@
+{
+  "name": "@jlpereira/taxonpages-panel-etymology",
+  "version": "0.0.1",
+  "private": false,
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages panel that displays etymology information for a given taxon",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "panels/PanelEtymology"
+  },
+  "taxonpages": {
+    "type": "panel",
+    "entry": "./main.js"
+  },
+  "files": [
+    "main.js",
+    "PanelEtymology.vue"
+  ],
+  "license": "MIT"
+}
