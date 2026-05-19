@@ -17,7 +17,7 @@ Drop-in cards that render inside a taxon page (`taxa_page.yml`). Each panel is p
 | [PanelGBIF](./panels/PanelGBIF)                       | `@jlpereira/taxonpages-panel-gbif`              | Resolves a taxon's GBIF usage key and links to its GBIF taxon page.                 |
 | [PaneliNaturalist](./panels/PaneliNaturalist)         | `@jlpereira/taxonpages-panel-inaturalist`       | iNaturalist observations in a responsive grid with an integrated image viewer.      |
 | [PanelScrutiny](./panels/PanelScrutiny)               | `@jlpereira/taxonpages-panel-scrutiny`          | Scrutiny entries (TaxonWorks `DataAttribute`s) and their supporting citations.      |
-| [PanelSpecimenRecords](./panels/PanelSpecimenRecords) | `@jlpereira/taxonpages-specimen-records`        | Type specimens and other specimen records (DwC) with locality, depository, and images. |
+| [PanelSpecimenRecords](./panels/PanelSpecimenRecords) | `@jlpereira/taxonpages-panel-specimen-records`        | Type specimens and other specimen records (DwC) with locality, depository, and images. |
 | [PanelXenocanto](./panels/PanelXenocanto)             | `@jlpereira/taxonpages-panel-xeno-canto`        | Xeno-canto audio recordings with sonogram, playback controls, and pagination.       |
 
 ### Modules
