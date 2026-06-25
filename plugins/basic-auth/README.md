@@ -7,6 +7,15 @@ username and password. This is implemented via the standard `401` +
 
 ## Installation
 
+### Via npm
+
+```bash
+npm install @jlpereira/taxonpages-plugin-basic-auth
+```
+
+TaxonPages picks up the plugin automatically through the `taxonpages` field
+declared in its `package.json`.
+
 ### Manual
 
 Copy the `basic-auth/` folder into your project's `plugins/` directory:
