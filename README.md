@@ -36,6 +36,7 @@ Runtime extensions that augment Vue/Vite/TaxonPages itself.
 | Package                | npm                                            | Description                                                                  |
 | ---------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
 | [react](./plugins/react) | `@jlpereira/taxonpages-plugin-react`         | `VReactBridge` component for mounting React components inside Vue templates. |
+| [basic-auth](./plugins/basic-auth) | `@jlpereira/taxonpages-plugin-basic-auth` | Protects the whole site with HTTP Basic authentication (browser login dialog). Credentials via `TAXONPAGES_BASIC_AUTH_*` env vars. |
 
 ## Installation
 
