@@ -1,0 +1,26 @@
+{
+  "name": "@jlpereira/taxonpages-plugin-basic-auth",
+  "version": "0.0.1",
+  "type": "module",
+  "private": false,
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages plugin that protects the site with HTTP Basic authentication",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "plugins/basic-auth"
+  },
+  "taxonpages": {
+    "type": "plugin",
+    "entry": "./plugin.js"
+  },
+  "files": [
+    "plugin.js"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}
