@@ -11,6 +11,12 @@
               ?.map((citation) => citation.citation_source_body)
               .join('; ')
           }}
+          <span
+            v-if="item.updated_at"
+            class="text-xs text-gray-500"
+          >
+            ({{ formatDate(item.updated_at) }})
+          </span>
         </li>
       </ul>
     </VCardContent>
@@ -45,6 +51,14 @@ onMounted(() => {
       scrutinies.value.forEach((scrutiny) => getCitationsFor(scrutiny))
     })
 })
+
+function formatDate(date) {
+  return new Date(date).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  })
+}
 
 function getCitationsFor(scrutiny) {
   const payload = {
