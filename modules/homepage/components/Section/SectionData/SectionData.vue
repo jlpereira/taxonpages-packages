@@ -97,17 +97,19 @@ const dataTypes = shallowRef(
     }, {})
 )
 
-makeAPIRequest('/stats').then((response) => {
-  const { data } = response.data
+makeAPIRequest('/stats')
+  .then((response) => {
+    const { data } = response.data
 
-  for (const key in data) {
-    if (dataTypes.value[key]) {
-      dataTypes.value[key].count = data[key]
+    for (const key in data) {
+      if (dataTypes.value[key]) {
+        dataTypes.value[key].count = data[key]
+      }
     }
-  }
 
-  triggerRef(dataTypes)
-})
+    triggerRef(dataTypes)
+  })
+  .catch(() => {})
 
 async function loadSpeciesCount() {
   const hasValidSpecies = !!dataTypes.value[TYPES.validSpecies]
@@ -155,5 +157,5 @@ async function loadSpeciesCount() {
   triggerRef(dataTypes)
 }
 
-loadSpeciesCount()
+loadSpeciesCount().catch(() => {})
 </script>
