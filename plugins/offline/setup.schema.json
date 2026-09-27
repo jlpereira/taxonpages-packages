@@ -1,0 +1,8 @@
+{
+  "label": "Offline mode",
+  "description": "Serve the site from a local copy of its TaxonWorks data",
+  "file": "offline.yml",
+  "configKey": "offline",
+  "editor": "custom",
+  "component": "./setup/OfflineEditor.vue"
+}

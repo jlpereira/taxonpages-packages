@@ -1,0 +1,45 @@
+{
+  "name": "@jlpereira/taxonpages-plugin-offline",
+  "version": "0.0.1",
+  "type": "module",
+  "private": false,
+  "author": {
+    "name": "José Luis Pereira"
+  },
+  "description": "A TaxonPages plugin that serves the site from a local SQLite copy of its TaxonWorks data",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jlpereira/taxonpages-packages.git",
+    "directory": "plugins/offline"
+  },
+  "taxonpages": {
+    "type": "plugin",
+    "entry": "./plugin.js"
+  },
+  "files": [
+    "plugin.js",
+    "src/",
+    "setup/",
+    "setup.schema.json"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "@sfgrp/taxonpages": ">=0.8.2"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.1"
+  },
+  "keywords": [
+    "taxonpages",
+    "taxonpages-plugin",
+    "taxonworks",
+    "offline",
+    "sqlite"
+  ]
+}
