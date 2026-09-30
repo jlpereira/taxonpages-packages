@@ -18,10 +18,14 @@ describe('collectMedia', () => {
     }
 
     expect(collectMedia(data, { sourceUrl })).toEqual([
-      { key: 'images/5/scale_to_box/0/0/10/10/10/10', url: 'https://tw.example.org/api/v1/images/5/scale_to_box/0/0/10/10/10/10' },
-      { key: 'https://tw.example.org/s/t1', url: 'https://tw.example.org/s/t1' },
-      { key: 'https://tw.example.org/files/sounds/1.mp3', url: 'https://tw.example.org/files/sounds/1.mp3' },
-      { key: 'images/6/as_png', url: `${sourceUrl}/images/6/as_png?x=1` }
+      {
+        key: 'images/5/scale_to_box/0/0/10/10/10/10',
+        url: 'https://tw.example.org/api/v1/images/5/scale_to_box/0/0/10/10/10/10',
+        field: 'original_png'
+      },
+      { key: 'https://tw.example.org/s/t1', url: 'https://tw.example.org/s/t1', field: 'thumb' },
+      { key: 'https://tw.example.org/files/sounds/1.mp3', url: 'https://tw.example.org/files/sounds/1.mp3', field: 'sound_file' },
+      { key: 'images/6/as_png', url: `${sourceUrl}/images/6/as_png?x=1`, field: 'original' }
     ])
   })
 

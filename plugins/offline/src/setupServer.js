@@ -10,11 +10,18 @@ import { stripTags } from './text.js'
 
 const MAX_MISSES = 200
 
+/** Package loading warnings belong to the sync log, not to wizard requests. */
+const quiet = { info() {}, warn() {}, error() {} }
+
 /**
  * Routes for the setup wizard, mounted at /api/plugins/offline.
  *
  *   GET  /status          configuration, database contents, sync state
+ *   GET  /datasets        what a sync stores, which is included, and its size
+ *   POST /prune           delete what datasets left out hold
  *   POST /sync            start `taxonpages offline:sync` in the background
+ *                         ({ fresh } starts over, { missing } adds only what
+ *                         is not stored)
  *   POST /sync/stop       stop it (resumable)
  *   GET  /sync/events     progress as server-sent events
  *   GET  /misses          summarized miss log
@@ -90,6 +97,7 @@ export function registerSetupRoutes(router, { projectRoot, packageRoot }) {
 
     const args = [join(packageRoot, 'bin/taxonpages.js'), 'offline:sync', '--json']
     if (req.body?.fresh) args.push('--fresh')
+    if (req.body?.missing) args.push('--missing')
 
     const child = spawn(process.execPath, args, { cwd: projectRoot, stdio: ['ignore', 'pipe', 'pipe'] })
 
@@ -129,6 +137,42 @@ export function registerSetupRoutes(router, { projectRoot, packageRoot }) {
     })
 
     res.status(202).json({ started: true })
+  })
+
+  router.get('/datasets', async (_req, res) => {
+    try {
+      const { configuration, config } = await readConfig()
+      const { loadSiteDatasets } = await import('./sync/sync.js')
+      const datasets = await loadSiteDatasets({ config, configuration, packageRoot, projectRoot, logger: quiet })
+      const store = safeOpen(config)
+      const sizes = store ? store.datasetSizes() : {}
+      store?.close()
+
+      res.json({ datasets: datasets.list.map((dataset) => ({ ...dataset, size: sizes[dataset.id] || null })) })
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  router.post('/prune', async (_req, res) => {
+    if (state.child) return res.status(409).json({ error: 'Wait for the sync to finish' })
+
+    try {
+      const { configuration, config } = await readConfig()
+      const store = safeOpen(config)
+      if (!store) return res.status(404).json({ error: 'No database yet' })
+
+      try {
+        const { loadSiteDatasets } = await import('./sync/sync.js')
+        const { pruneDatasets } = await import('./prune.js')
+        const datasets = await loadSiteDatasets({ config, configuration, packageRoot, projectRoot, logger: quiet })
+        res.json(pruneDatasets({ store, datasets }))
+      } finally {
+        store.close()
+      }
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
   })
 
   router.post('/sync/stop', (_req, res) => {

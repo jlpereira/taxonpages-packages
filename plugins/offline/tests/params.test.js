@@ -8,7 +8,7 @@ function keyFromAxios(path, params) {
   return canonicalKey(url.pathname.replace('/offline/api/v1', ''), url.searchParams)
 }
 
-// Every params shape the core panels send (see src/sync/recipes.js).
+// Every params shape the core panels send (see src/recipes/).
 const SITE_REQUESTS = [
   ['/otus/1', { extend: ['parents'] }],
   ['/otus/1/inventory/taxonomy.json', { max_descendants_depth: 0, extend: ['common_names'] }],

@@ -1,18 +1,15 @@
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { canonicalKey, serializeParams } from '../params.js'
 import { GEO_MODES, syncScope } from '../config.js'
 import { collectMedia, saveMedia } from '../media.js'
 import { stripTags } from '../text.js'
-import {
-  basePage,
-  descendants,
-  PANEL_RECIPES,
-  panelsInLayout,
-  isAvailableForRank
-} from './recipes.js'
+import { basePage, descendants, withCoreRecipes } from '../recipes/index.js'
+import { panelsInLayout, isAvailableForRank } from './layout.js'
 import { loadPackageRecipes, runPackageRecipe } from './packageRecipes.js'
+import { createMediaQueue } from './mediaQueue.js'
+import { createImageConverter, describeConversion } from '../images.js'
+import { mediaDataset, resolveDatasets } from '../datasets.js'
 
 const LISTING_PER = 500
 const PROGRESS_INTERVAL = 1000
@@ -33,14 +30,31 @@ const PROGRESS_INTERVAL = 1000
  * fetched again. A new run starts when the previous one completed, when the
  * scope changes, or when `fresh` is set.
  *
+ * With `missing`, a run fetches only what the database does not hold yet,
+ * from whatever run: to add datasets (`offline.include`) without syncing
+ * everything again. Nothing already stored is refreshed.
+ *
+ * What is stored is organized in datasets (see datasets.js): the panels of
+ * the layout, and optional parts such as the map point details. Datasets left
+ * out are not fetched, and everything fetched is recorded under the dataset
+ * that asked for it.
+ *
+ * Three things run side by side: the OTU pages (several at once, and the
+ * panels of each at once), the project-wide lists, and the media downloads.
+ * The remote client's pacing is what limits the load on TaxonWorks, whatever
+ * the number of requests waiting.
+ *
  * @param {object} options
  * @param {ReturnType<import('../config.js').resolveOfflineConfig>} options.config
  * @param {import('../store.js').OfflineStore} options.store
  * @param {import('../remote.js').RemoteClient} options.remote
+ * @param {import('../remote.js').RemoteClient} [options.mediaRemote] - For
+ *   media downloads, paced apart from the API (default: `remote`)
  * @param {object} options.configuration - Site configuration (for locales)
  * @param {string} options.packageRoot - TaxonPages package, for its i18n helpers
  * @param {string} options.projectRoot - The site, for recipes its packages ship
  * @param {boolean} [options.fresh]
+ * @param {boolean} [options.missing] - Fetch only what is not stored yet
  * @param {AbortSignal} [options.signal]
  * @param {(progress: SyncProgress) => void} [options.onProgress]
  * @param {{ info: Function, warn: Function, error: Function }} [options.logger]
@@ -50,29 +64,46 @@ export async function runSync({
   config,
   store,
   remote,
+  mediaRemote = remote,
   configuration,
   packageRoot,
   projectRoot,
   fresh = false,
+  missing: missingOnly = false,
   signal,
   onProgress = () => {},
   logger = console
 }) {
   const scope = syncScope(config)
-  const run = startRun(store, scope, fresh)
+  const { id: run, missing } = startRun(store, scope, { fresh, missing: missingOnly })
+  // A resumed run carries on the clock of its earlier sessions.
+  const clock = { before: store.getMeta('sync.run')?.elapsedMs || 0, since: Date.now() }
   const localizeBind = await makeBindLocalizer(packageRoot, configuration)
   const layout = config.layout || (await loadDefaultLayout(packageRoot))
   const packageRecipes = await loadPackageRecipes({ projectRoot, packageRoot, configuration, logger })
-  const panels = panelsInLayout(
-    layout,
-    localizeBind,
-    Object.fromEntries([...packageRecipes.panels].map(([id, { rankGroup }]) => [id, rankGroup]))
-  )
+  const recipes = withCoreRecipes(packageRecipes)
+  const panels = panelsInLayout(layout, localizeBind, rankGroupsOf(recipes))
 
   logPackageRecipes(packageRecipes, logger)
 
+  const datasets = siteDatasets({ config, panels: panels.keys(), recipes })
+  const excluded = datasets.list.filter((dataset) => !dataset.included).map((dataset) => dataset.id)
+  if (excluded.length) logger.info(`Leaving out: ${excluded.join(', ')}`)
+  if (missing) logger.info('Fetching only what the database does not hold yet')
+
+  // Before anything is fetched: a missing image library stops the sync here.
+  const converter = config.media ? await createImageConverter(config.images) : null
+  if (converter) logger.info(`Converting ${config.images.fields.join(', ')} images: ${describeConversion(config.images)}`)
+  if (converter && config.images.format === 'avif' && !config.images.maxSize) {
+    logger.warn(
+      'AVIF at full size can take about a minute per full-size image. With images.max_size: 2048 it takes ' +
+        'about 10 seconds, and WebP under a second.'
+    )
+  }
+
   const progress = {
     run,
+    missing,
     phase: 'starting',
     scope,
     queued: 0,
@@ -81,28 +112,53 @@ export async function runSync({
     failed: 0,
     requests: 0,
     media: 0,
+    mediaPending: 0,
+    converted: { files: 0, bytesBefore: 0, bytesAfter: 0 },
     current: null,
+    elapsed: clock.before,
     startedAt: new Date().toISOString(),
     finishedAt: null
   }
 
+  const mediaQueue = createMediaQueue({
+    store,
+    remote: mediaRemote,
+    concurrency: config.sync.parallelDownloads,
+    converter,
+    signal,
+    logger,
+    onSaved: () => {
+      progress.media += 1
+      report()
+    }
+  })
+
   let lastReport = 0
   const report = (force = false) => {
-    progress.requests = remote.requestCount
+    progress.requests = remote.requestCount + (mediaRemote === remote ? 0 : mediaRemote.requestCount)
+    progress.mediaPending = mediaQueue.pending
+    progress.converted = mediaQueue.conversion
     const now = Date.now()
+    progress.elapsed = clock.before + (now - clock.since)
     if (!force && now - lastReport < PROGRESS_INTERVAL) return
     lastReport = now
     store.setMeta('sync.progress', progress)
+    // Kept with the run, so the time survives a crash as well as a stop.
+    store.setMeta('sync.run', { ...store.getMeta('sync.run'), elapsedMs: progress.elapsed })
     onProgress({ ...progress })
   }
 
-  const ctxBase = createFetchContext({ config, store, remote, run, progress, logger })
+  const ctxBase = createFetchContext({ config, store, remote, run, missing, datasets, mediaQueue, signal })
+
+  if (config.media) mediaQueue.resume((field) => datasets.includes(mediaDataset(field)))
 
   // --- project-wide data ---
   progress.phase = 'project'
   report(true)
 
-  const listedOtuIds = await syncProjectData({
+  // The OTU list of a list scope is needed before the pages; the rest of the
+  // project-wide data is synced alongside them.
+  const listedOtuIds = await listScopeOtus({
     ctx: ctxBase,
     config,
     store,
@@ -110,11 +166,28 @@ export async function runSync({
     run,
     logger,
     signal,
-    onPage: () => report(),
-    packageRecipes
+    onPage: () => report()
+  }).catch((err) => {
+    if (signal?.aborted) return []
+    throw err
   })
 
-  if (signal?.aborted) return finish()
+  const projectData = syncProjectData({
+    ctx: ctxBase,
+    missing,
+    store,
+    remote,
+    run,
+    logger,
+    signal,
+    onPage: () => report(),
+    recipes
+  }).catch((err) => logger.warn(`Project data: ${err.message}`))
+
+  if (signal?.aborted) {
+    await projectData
+    return finish()
+  }
 
   // --- OTU pages ---
   progress.phase = 'otus'
@@ -159,13 +232,15 @@ export async function runSync({
     progress.current = otuId
 
     try {
-      const { otu, taxon } = await basePage(ctx)
+      // The children are requested with the page itself: nothing about them
+      // depends on it, and the sooner they are queued the sooner other
+      // workers have something to do.
+      const [{ otu, taxon }] = await Promise.all([basePage(ctx), descendants(ctx)])
 
       if (!otu) throw new Error('OTU not found')
 
       // Before the panels: a failing panel must not cut off the subtree.
       await expand(ctx, otu)
-      await descendants(ctx)
 
       const { parents, ...record } = otu
       store.putOtu(record, otuSearchText(record))
@@ -175,31 +250,43 @@ export async function runSync({
       ctx.taxonId = taxon?.id ?? otu.taxon_name_id ?? null
       ctx.rankString = taxon?.rank_string
 
+      const runs = []
+
       if (taxon) {
         for (const [panelId, entries] of panels) {
-          // A package's recipe wins over the core's for the same id, as a
-          // local panel wins over a core panel on the page.
-          const fromPackage = packageRecipes.panels.get(panelId)
-          const recipe = fromPackage
-            ? (...args) => runPackageRecipe(fromPackage, ...args)
-            : PANEL_RECIPES[panelId]
-          if (!recipe) continue
+          if (!datasets.includes(panelId)) continue
+
+          const entry = recipes.panels.get(panelId)
+          if (!entry) continue
+
+          // A package's recipe names its package in the errors it throws.
+          const recipe = entry.source === 'core' ? entry.recipe : (...args) => runPackageRecipe(entry, ...args)
 
           const binds = entries
             .filter((entry) => isAvailableForRank(entry.rankGroups, ctx.rankString))
             .map((entry) => entry.bind)
 
-          if (binds.length) await recipe(ctx, binds)
+          if (binds.length) runs.push(() => recipe({ ...ctx, ...ctx.forDataset(panelId) }, binds))
         }
       }
 
-      for (const entry of packageRecipes.everyOtu) {
-        await runPackageRecipe(entry, ctx, [])
+      for (const entry of recipes.everyOtu) {
+        runs.push(() => runPackageRecipe(entry, { ...ctx, ...ctx.forDataset(entry.source) }, []))
       }
+
+      // Every panel at once, as the page loads them. All of them are let
+      // finish before the OTU is failed, so nothing is left writing after it.
+      const failure = (await Promise.allSettled(runs.map((run) => run()))).find(
+        (result) => result.status === 'rejected'
+      )
+      if (failure) throw failure.reason
 
       store.markOtu(otuId, run)
       progress.done += 1
     } catch (err) {
+      // Stopped, not failed: the OTU is synced again when the run resumes.
+      if (signal?.aborted) return
+
       store.markOtu(otuId, run, err.message || String(err))
       progress.failed += 1
       logger.warn(`OTU ${otuId}: ${err.message}`)
@@ -232,20 +319,38 @@ export async function runSync({
     }
   }
 
-  await Promise.all(Array.from({ length: config.sync.concurrency }, worker))
+  await Promise.all(Array.from({ length: config.sync.pages }, worker))
+
+  // The pages are done; say what is left to wait for.
+  progress.current = null
+
+  if (!signal?.aborted) {
+    progress.phase = mediaQueue.pending ? 'media' : 'project'
+    report(true)
+  }
+
+  await projectData
+
+  if (!signal?.aborted && mediaQueue.pending) {
+    progress.phase = 'media'
+    report(true)
+  }
 
   return finish()
 
-  function finish() {
+  async function finish() {
+    // Let downloads in flight end before the store is closed.
+    await mediaQueue.drain()
+
     progress.current = null
     progress.phase = signal?.aborted ? 'interrupted' : 'completed'
     progress.finishedAt = new Date().toISOString()
 
+    report(true)
+
     if (!signal?.aborted) {
       store.setMeta('sync.run', { ...store.getMeta('sync.run'), completedAt: progress.finishedAt })
     }
-
-    report(true)
 
     return progress
   }
@@ -254,50 +359,133 @@ export async function runSync({
 /**
  * @typedef {object} SyncProgress
  * @property {number} run
- * @property {string} phase - starting | project | otus | completed | interrupted
+ * @property {boolean} missing - Whether the run fetches only what is missing
+ * @property {string} phase - starting | project | otus | media | completed | interrupted
  * @property {ReturnType<typeof syncScope>} scope
  * @property {number} queued
  * @property {number} done
  * @property {number} skipped
  * @property {number} failed
- * @property {number} requests
- * @property {number} media
+ * @property {number} requests - API requests and media downloads
+ * @property {number} media - Files downloaded
+ * @property {number} mediaPending - Files queued or downloading
+ * @property {{ files: number, bytesBefore: number, bytesAfter: number }} converted -
+ *   Images converted in this session (`offline.images`)
+ * @property {number} elapsed - Milliseconds the run has taken so far, across
+ *   the sessions of a resumed run
  * @property {number|null} current
  * @property {string} startedAt
  * @property {string|null} finishedAt
  */
 
 /**
- * Continue the current run, or start a new one.
+ * Continue the current run, or start a new one. A resumed run keeps fetching
+ * only what is missing if it started that way.
+ *
+ * @returns {{ id: number, missing: boolean }}
  */
-function startRun(store, scope, fresh) {
+function startRun(store, scope, { fresh, missing }) {
   const previous = store.getMeta('sync.run')
   const sameScope = previous && JSON.stringify(previous.scope) === JSON.stringify(scope)
 
-  if (previous && sameScope && !previous.completedAt && !fresh) return previous.id
+  if (previous && sameScope && !previous.completedAt && !fresh) {
+    return { id: previous.id, missing: Boolean(previous.missing || missing) }
+  }
 
   const id = (previous?.id || 0) + 1
-  store.setMeta('sync.run', { id, scope, startedAt: new Date().toISOString(), completedAt: null })
+  store.setMeta('sync.run', { id, scope, missing, startedAt: new Date().toISOString(), completedAt: null })
 
-  return id
+  return { id, missing }
+}
+
+/**
+ * The datasets of the site: the panels of the layout that fetch something,
+ * the core's, and those packages declare.
+ *
+ * @param {object} options
+ * @param {ReturnType<import('../config.js').resolveOfflineConfig>} options.config
+ * @param {Iterable<string>} options.panels - Panel ids of the layout
+ * @param {import('./packageRecipes.js').PackageRecipes} options.recipes - Core
+ *   and package recipes
+ */
+function siteDatasets({ config, panels, recipes }) {
+  return resolveDatasets({
+    panels: [...panels].filter((id) => recipes.panels.has(id)),
+    recipeDatasets: recipes.datasets,
+    include: config.include,
+    media: config.media
+  })
+}
+
+/**
+ * The datasets of a site, for the wizard and the prune command: what a sync
+ * of it would store, and which are included.
+ *
+ * @param {object} options
+ * @param {ReturnType<import('../config.js').resolveOfflineConfig>} options.config
+ * @param {object} options.configuration
+ * @param {string} options.packageRoot
+ * @param {string} options.projectRoot
+ * @param {{ warn: Function }} [options.logger]
+ * @returns {Promise<import('../datasets.js').Datasets>}
+ */
+export async function loadSiteDatasets({ config, configuration, packageRoot, projectRoot, logger = console }) {
+  const layout = config.layout || (await loadDefaultLayout(packageRoot))
+  const recipes = withCoreRecipes(await loadPackageRecipes({ projectRoot, packageRoot, configuration, logger }))
+  const panels = panelsInLayout(layout, (bind) => [bind])
+
+  return siteDatasets({ config, panels: panels.keys(), recipes })
+}
+
+/** The rank groups each panel is limited to by default, by panel id. */
+function rankGroupsOf(recipes) {
+  return Object.fromEntries([...recipes.panels].map(([id, { rankGroup }]) => [id, rankGroup]))
 }
 
 /**
  * The request function recipes use, plus the bookkeeping around it: storing,
- * reading back what this run already stored, sharing in-flight requests, and
- * downloading the media a response refers to.
+ * reading back what this run already stored (or anything stored, when
+ * fetching only what is missing), sharing in-flight requests, queuing the
+ * media a response refers to, and recording each under its dataset.
+ *
+ * Returns the context of the `page` dataset; `forDataset` gives the same
+ * functions recording under another.
  */
-function createFetchContext({ config, store, remote, run, progress, logger }) {
+function createFetchContext({ config, store, remote, run, missing, datasets, mediaQueue, signal }) {
   const inflight = new Map()
   const onceDone = new Set()
-  const mediaSeen = new Set()
+  const apiPrefix = `${config.source.url}/`
 
-  async function get(path, params) {
-    const pairs = serializeParams(params)
+  /**
+   * GET a path — or an absolute URL into the source API, as a response
+   * links to it (DwC `associatedMedia`) — the way the site requests it.
+   */
+  async function get(path, params, dataset) {
+    let pairs = serializeParams(params)
+
+    if (/^https?:\/\//.test(path)) {
+      if (!isApiUrl(path)) throw new Error(`${path} is not a URL of the TaxonWorks API`)
+      const url = new URL(path)
+      pairs = [...url.searchParams, ...pairs]
+      path = url.href.slice(apiPrefix.length).split('?')[0]
+    }
+
     const key = canonicalKey(path, pairs)
+    const response = await getByKey(key, path, pairs)
 
-    if (store.hasResponseFromRun(key, run)) {
+    if (response.kind !== 'binary') store.tagItem(dataset, 'response', key)
+
+    return response
+  }
+
+  async function getByKey(key, path, pairs) {
+    const storedRun = store.responseRun(key)
+    const fromThisRun = storedRun === run
+
+    if (fromThisRun || (missing && storedRun !== undefined)) {
       const stored = store.getResponse(key)
+      // Stored by an earlier run: its media may be of a dataset added since.
+      if (!fromThisRun && stored.kind === 'json') queueMedia(stored.data)
       return { status: stored.status, headers: stored.headers, data: stored.data }
     }
 
@@ -313,8 +501,24 @@ function createFetchContext({ config, store, remote, run, progress, logger }) {
     }
   }
 
+  function isApiUrl(url) {
+    return typeof url === 'string' && url.startsWith(apiPrefix)
+  }
+
+  function queueMedia(data) {
+    if (!config.media) return
+
+    for (const { key, url, field } of collectMedia(data, { sourceUrl: config.source.url })) {
+      const dataset = mediaDataset(field)
+      if (!datasets.includes(dataset)) continue
+
+      store.tagItem(dataset, 'media', key)
+      mediaQueue.add(key, url, field)
+    }
+  }
+
   async function fetchAndStore(key, path, pairs) {
-    const response = await remote.request(path, pairs)
+    const response = await remote.request(path, pairs, { signal })
 
     // A server error is not an answer: keep whatever an earlier run stored,
     // and fail the OTU so a resumed run retries it.
@@ -333,25 +537,9 @@ function createFetchContext({ config, store, remote, run, progress, logger }) {
       run
     })
 
-    if (config.media && response.kind === 'json') await downloadMedia(response.data)
+    if (response.kind === 'json') queueMedia(response.data)
 
     return response
-  }
-
-  async function downloadMedia(data) {
-    for (const { key, url } of collectMedia(data, { sourceUrl: config.source.url })) {
-      if (mediaSeen.has(key)) continue
-      mediaSeen.add(key)
-
-      const existing = store.getMedia(key)
-      if (existing?.hash && existsSync(store.mediaPath(existing.hash))) continue
-
-      try {
-        if (saveMedia(store, key, await remote.fetchUrl(url))) progress.media += 1
-      } catch (err) {
-        logger.warn(`Media ${url}: ${err.message}`)
-      }
-    }
   }
 
   /** Run `fn` at most once per sync, whatever OTU asks for it. */
@@ -361,73 +549,83 @@ function createFetchContext({ config, store, remote, run, progress, logger }) {
     await fn()
   }
 
-  return { get, once }
+  function forDataset(dataset) {
+    return {
+      dataset,
+      get: (path, params) => get(path, params, dataset),
+      once,
+      includes: (id) => datasets.includes(id),
+      isApiUrl,
+      forDataset
+    }
+  }
+
+  return forDataset('page')
 }
 
 /**
- * Data the site shows outside OTU pages, and the list of OTUs in scope when
- * the scope is a list rather than a tree.
+ * The OTUs in scope when the scope is a list rather than a tree.
  *
  * @returns {Promise<number[]>} The OTUs of the whole project, or of the
  *   geographic areas; empty when the scope is walked down from `roots`.
  */
-async function syncProjectData({ ctx, config, store, remote, run, logger, signal, onPage, packageRecipes }) {
-  const alreadyDone = store.getMeta('sync.project_done_run') === run
+async function listScopeOtus({ ctx, config, store, remote, run, logger, signal, onPage }) {
   const byArea = config.geographicAreas.length > 0
   const wholeProject = !byArea && config.roots.length === 0
   const ids = []
 
-  if (wholeProject || byArea) {
-    const params = byArea ? await areaListingParams(ctx, config, logger) : {}
+  if (!wholeProject && !byArea) return ids
 
-    if (params) {
-      await forEachPage(remote, '/otus', params, { signal, onPage }, (records) => {
-        store.transaction(() => {
-          for (const otu of records) {
-            ids.push(otu.id)
-            // The whole project is searchable from the start; narrower scopes
-            // index each OTU as its page is synced.
-            if (wholeProject && !alreadyDone) store.putOtu(otu, otuSearchText(otu))
-          }
-        })
-      })
-    }
+  const params = byArea ? await areaListingParams(ctx, config, logger) : {}
+  if (!params) return ids
+
+  // The whole project is searchable from the start; narrower scopes index
+  // each OTU as its page is synced.
+  const index = wholeProject && store.getMeta('sync.project_done_run') !== run
+
+  await forEachPage(remote, '/otus', params, { signal, onPage }, (records) => {
+    store.transaction(() => {
+      for (const otu of records) {
+        ids.push(otu.id)
+        if (index) store.putOtu(otu, otuSearchText(otu))
+      }
+    })
+  })
+
+  return ids
+}
+
+/**
+ * Data the site shows outside OTU pages: what the project recipes of the core
+ * (statistics, bibliography, news) and of packages fetch. Runs alongside the
+ * OTU pages, so a failure is logged rather than thrown; the project data is
+ * then fetched again when the run resumes.
+ */
+async function syncProjectData({ ctx, recipes, missing, store, remote, run, logger, signal, onPage }) {
+  if (store.getMeta('sync.project_done_run') === run) return
+
+  const core = {
+    store,
+    missing,
+    list: (path, params, onRecords) => forEachPage(remote, path, params, { signal, onPage }, onRecords)
   }
 
-  if (alreadyDone) return ids
+  const results = await Promise.allSettled(
+    recipes.project.map((entry) => {
+      const recipeCtx = { ...ctx, ...ctx.forDataset(entry.dataset ?? entry.source) }
+      return entry.core ? entry.recipe(recipeCtx, core) : runPackageRecipe(entry, recipeCtx)
+    })
+  )
 
-  await ctx.get('/stats')
-
-  await forEachPage(remote, '/sources', { in_project: true }, { signal, onPage }, (records) => {
-    store.transaction(() => records.forEach((source) => store.putSource(source)))
-  }).catch((err) => logger.warn(`Sources: ${err.message}`))
-
-  const newsIds = []
-  await forEachPage(remote, '/news', {}, { signal, onPage }, (records) => {
-    store.transaction(() =>
-      records.forEach((item) => {
-        store.putNews(item)
-        newsIds.push(item.id)
-      })
-    )
-  }).catch((err) => logger.warn(`News: ${err.message}`))
-
-  for (const id of newsIds) {
-    if (signal?.aborted) return ids
-    await ctx.get(`/news/${id}`)
-  }
-
-  for (const entry of packageRecipes.project) {
-    if (signal?.aborted) return ids
-    await runPackageRecipe(entry, ctx).catch((err) => logger.warn(err.message))
+  const failures = results.filter((result) => result.status === 'rejected')
+  if (!signal?.aborted) {
+    for (const { reason } of failures) logger.warn(`Project data: ${reason?.message ?? reason}`)
   }
 
   // Not reached when interrupted: a resumed run fetches these again.
-  if (signal?.aborted) return ids
+  if (signal?.aborted || failures.length) return
 
   store.setMeta('sync.project_done_run', run)
-
-  return ids
 }
 
 /**
@@ -478,13 +676,20 @@ export function ancestorIds(otu) {
 }
 
 /**
- * Walk every page of a paginated index, stopping early when aborted.
+ * Walk every page of a paginated index, stopping early when aborted. Pages
+ * after the first are requested at once, since the first tells how many there
+ * are; the remote client's pacing spaces them. `onPage` sees them in the
+ * order they arrive.
  */
 async function forEachPage(remote, path, params, { signal, onPage: afterPage } = {}, onPage) {
-  for (let page = 1; ; page += 1) {
-    if (signal?.aborted) return
-
-    const response = await remote.get(path, { ...params, per: LISTING_PER, page })
+  async function fetchPage(page) {
+    let response
+    try {
+      response = await remote.get(path, { ...params, per: LISTING_PER, page }, { signal })
+    } catch (err) {
+      if (signal?.aborted) return null
+      throw err
+    }
 
     if (response.status !== 200 || !Array.isArray(response.data)) {
       throw new Error(`HTTP ${response.status} listing ${path}`)
@@ -493,9 +698,18 @@ async function forEachPage(remote, path, params, { signal, onPage: afterPage } =
     onPage(response.data)
     afterPage?.()
 
-    const totalPages = Number(response.headers['pagination-total-pages']) || 1
-    if (page >= totalPages || response.data.length === 0) return
+    return response
   }
+
+  if (signal?.aborted) return
+
+  const first = await fetchPage(1)
+  if (!first || first.data.length === 0) return
+
+  const totalPages = Number(first.headers['pagination-total-pages']) || 1
+  const rest = Array.from({ length: totalPages - 1 }, (_, i) => i + 2)
+
+  await Promise.all(rest.map(fetchPage))
 }
 
 function otuSearchText(otu) {

@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
 import { dirname } from 'node:path'
+import { unavailableReason } from './recipes/index.js'
 
 /**
  * Record requests the local database could not answer, one JSON object per
@@ -40,10 +41,11 @@ export function createMissLogger(file, enabled) {
 }
 
 /**
- * Summarize the miss log: one entry per request, most frequent first.
+ * Summarize the miss log: one entry per request, most frequent first, with
+ * why it cannot be synced when a recipe says (`unavailable`).
  *
  * @param {string} file
- * @returns {Array<{ key: string, count: number, last: string, resolved: string }>}
+ * @returns {Array<{ key: string, count: number, last: string, resolved: string, reason: string|null }>}
  */
 export function readMisses(file) {
   if (!existsSync(file)) return []
@@ -69,5 +71,7 @@ export function readMisses(file) {
     byKey.set(entry.key, current)
   }
 
-  return [...byKey.values()].sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1))
+  return [...byKey.values()]
+    .map((miss) => ({ ...miss, reason: unavailableReason(miss.key) }))
+    .sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : -1))
 }

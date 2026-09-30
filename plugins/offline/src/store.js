@@ -1,7 +1,7 @@
 import { mkdirSync, existsSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib'
-import { deflate, inflate, hashText } from './refs.js'
+import { deflate, inflate, hashText, blobRefs } from './refs.js'
 import { stripTags } from './text.js'
 
 /**
@@ -63,6 +63,29 @@ CREATE TABLE IF NOT EXISTS media (
   status INTEGER NOT NULL,
   fetched_at INTEGER NOT NULL
 );
+
+-- Media found in stored responses and not downloaded yet: the key the site
+-- requests it by, the URL to download it from, and the response field it was
+-- found in (which decides whether it is converted). Kept across runs, so an
+-- interrupted sync downloads them when resumed. The server never reads it.
+CREATE TABLE IF NOT EXISTS media_queue (
+  url TEXT PRIMARY KEY,
+  source_url TEXT NOT NULL,
+  field TEXT
+);
+
+-- The dataset each stored response ('response', by key) and file ('media', by
+-- the key the site requests it by) was synced for; one item can serve
+-- several. Used to measure datasets and to prune those left out. The server
+-- never reads it.
+CREATE TABLE IF NOT EXISTS dataset_items (
+  dataset TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  key TEXT NOT NULL,
+  PRIMARY KEY (dataset, kind, key)
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS dataset_items_key ON dataset_items (kind, key);
 
 -- Search tables, for endpoints that take free-text queries.
 CREATE TABLE IF NOT EXISTS otus (
@@ -160,10 +183,7 @@ export class OfflineStore {
    * rebuilt by syncing again.
    */
   checkSchemaVersion() {
-    const hasMeta = this.db
-      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta'")
-      .get()
-    if (!hasMeta) return
+    if (!this.hasTable('meta')) return
 
     const row = this.db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()
     const version = row ? JSON.parse(row.value) : null
@@ -175,6 +195,12 @@ export class OfflineStore {
           `(schema ${version}, expected ${SCHEMA_VERSION}). Delete it and run \`taxonpages offline:sync\` again.`
       )
     }
+  }
+
+  hasTable(name) {
+    return Boolean(
+      this.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name)
+    )
   }
 
   /**
@@ -364,9 +390,23 @@ export class OfflineStore {
     return response
   }
 
+  /** Keys of the stored JSON responses. */
+  jsonResponseKeys() {
+    return this.db.prepare("SELECT key FROM responses WHERE kind = 'json'").all().map((row) => row.key)
+  }
+
   /** Whether a successful response is stored for a request. */
   hasResponse(key) {
     return Boolean(this.stmt.hasResponse.get(key))
+  }
+
+  /**
+   * The run that stored a response: null for one kept by the proxy,
+   * undefined when none is stored.
+   */
+  responseRun(key) {
+    const row = this.stmt.getResponseRun.get(key)
+    return row ? row.run : undefined
   }
 
   /** Whether a response was stored during the given sync run. */
@@ -391,6 +431,190 @@ export class OfflineStore {
 
   putMedia(url, { hash = null, contentType = null, size = null, status }) {
     this.stmt.putMedia.run(url, hash, contentType, size, status, Date.now())
+  }
+
+  /**
+   * Remember a file to download.
+   *
+   * @param {string} key - The key the site requests it by
+   * @param {string} url - Where to download it from
+   * @param {string} [field] - The response field it was found in
+   */
+  queueMedia(key, url, field = null) {
+    this.queueStatements().queue.run(key, url, field)
+  }
+
+  unqueueMedia(key) {
+    this.queueStatements().unqueue.run(key)
+  }
+
+  /** @returns {Array<{ key: string, url: string, field: string|null }>} */
+  queuedMedia() {
+    return this.queueStatements().list.all().map(({ key, url, field }) => ({ key, url, field }))
+  }
+
+  /**
+   * Prepared on first use rather than in prepare(): only the sync writes the
+   * queue, and a database opened read-only from an older version has no
+   * media_queue table to prepare them against.
+   */
+  queueStatements() {
+    this.queueStmt ??= {
+      queue: this.db.prepare('INSERT OR IGNORE INTO media_queue (url, source_url, field) VALUES (?, ?, ?)'),
+      unqueue: this.db.prepare('DELETE FROM media_queue WHERE url = ?'),
+      list: this.db.prepare('SELECT url AS key, source_url AS url, field FROM media_queue')
+    }
+    return this.queueStmt
+  }
+
+  // --- datasets ---
+
+  /**
+   * Record that a stored item belongs to a dataset.
+   *
+   * @param {string} dataset
+   * @param {'response'|'media'} kind
+   * @param {string} key
+   */
+  tagItem(dataset, kind, key) {
+    this.datasetStatements().tag.run(dataset, kind, key)
+  }
+
+  /**
+   * Size of each dataset: its items and their bytes as stored (compressed
+   * responses, media files). An item shared by several datasets counts in
+   * each, and pieces shared between responses (blobs) in none, so the sizes
+   * are a guide rather than a partition of the database.
+   *
+   * @returns {Record<string, { items: number, bytes: number }>}
+   */
+  datasetSizes() {
+    const sizes = {}
+    const add = (dataset, items, bytes) => {
+      sizes[dataset] ??= { items: 0, bytes: 0 }
+      sizes[dataset].items += items
+      sizes[dataset].bytes += bytes
+    }
+
+    if (this.hasTable('dataset_items')) {
+      const rows = this.db
+        .prepare(
+          `SELECT d.dataset, COUNT(*) AS items, COALESCE(SUM(LENGTH(r.body)), 0) AS bytes
+             FROM dataset_items d JOIN responses r ON r.key = d.key
+            WHERE d.kind = 'response' GROUP BY d.dataset
+           UNION ALL
+           SELECT d.dataset, COUNT(*) AS items, COALESCE(SUM(m.size), 0) AS bytes
+             FROM dataset_items d JOIN media m ON m.url = d.key
+            WHERE d.kind = 'media' AND m.hash IS NOT NULL GROUP BY d.dataset`
+        )
+        .all()
+      for (const { dataset, items, bytes } of rows) add(dataset, items, bytes)
+    }
+
+    // Kept in their own tables rather than as responses.
+    const table = (name) => this.db.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(record)), 0) AS bytes FROM ${name}`).get()
+    const sources = table('sources')
+    const news = table('news')
+    if (sources.n) add('project:bibliography', sources.n, sources.bytes)
+    if (news.n) add('project:news', news.n, news.bytes)
+
+    return sizes
+  }
+
+  /**
+   * Items recorded only under the given datasets: those no other dataset
+   * needs. Items never recorded under any dataset are not included.
+   *
+   * @param {string[]} datasets
+   * @param {'response'|'media'} kind
+   * @returns {string[]}
+   */
+  itemsOnlyIn(datasets, kind) {
+    if (!datasets.length || !this.hasTable('dataset_items')) return []
+
+    const marks = datasets.map(() => '?').join(', ')
+    return this.db
+      .prepare(
+        `SELECT key FROM dataset_items WHERE kind = ?
+          GROUP BY key HAVING SUM(dataset IN (${marks})) = COUNT(*)`
+      )
+      .all(kind, ...datasets)
+      .map((row) => row.key)
+  }
+
+  /** Delete a stored response or file record, and its dataset records. */
+  deleteItem(kind, key) {
+    const statements = this.datasetStatements()
+    if (kind === 'response') statements.deleteResponse.run(key)
+    else statements.deleteMedia.run(key)
+    statements.untag.run(kind, key)
+  }
+
+  /** Empty the bibliography or the news, kept in tables of their own. */
+  clearTable(name) {
+    if (!['sources', 'news'].includes(name)) throw new Error(`Not a clearable table: ${name}`)
+    this.db.exec(`DELETE FROM ${name}`)
+  }
+
+  /**
+   * Delete the shared pieces no stored response refers to any more, and
+   * reclaim the space.
+   *
+   * @returns {number} Pieces deleted
+   */
+  collectGarbage() {
+    const used = new Set()
+    const visit = (value) => {
+      for (const hash of blobRefs(value)) {
+        if (used.has(hash)) continue
+        used.add(hash)
+        // A record piece holds deflated JSON, with pieces of its own.
+        const row = this.stmt.getBlob.get(hash)
+        if (!row) continue
+        const text = brotliDecompressSync(row.body).toString('utf8')
+        if (text[0] === '{' || text[0] === '[') {
+          try {
+            visit(JSON.parse(text))
+          } catch {
+            // a long string that looks like JSON: no pieces inside
+          }
+        }
+      }
+    }
+
+    for (const row of this.db.prepare("SELECT body FROM responses WHERE kind = 'json' AND body IS NOT NULL").iterate()) {
+      visit(JSON.parse(brotliDecompressSync(row.body).toString('utf8')))
+    }
+
+    let deleted = 0
+    const remove = this.db.prepare('DELETE FROM blobs WHERE hash = ?')
+    this.transaction(() => {
+      for (const { hash } of this.db.prepare('SELECT hash FROM blobs').all()) {
+        if (!used.has(hash)) {
+          remove.run(hash)
+          deleted += 1
+        }
+      }
+    })
+
+    this.blobCache.clear()
+    this.db.exec('VACUUM')
+
+    return deleted
+  }
+
+  /**
+   * Prepared on first use, as the media queue's: a database opened read-only
+   * from an older version has no dataset_items table.
+   */
+  datasetStatements() {
+    this.datasetStmt ??= {
+      tag: this.db.prepare('INSERT OR IGNORE INTO dataset_items (dataset, kind, key) VALUES (?, ?, ?)'),
+      untag: this.db.prepare('DELETE FROM dataset_items WHERE kind = ? AND key = ?'),
+      deleteResponse: this.db.prepare('DELETE FROM responses WHERE key = ?'),
+      deleteMedia: this.db.prepare('DELETE FROM media WHERE url = ?')
+    }
+    return this.datasetStmt
   }
 
   mediaPath(hash) {
@@ -531,6 +755,7 @@ export class OfflineStore {
       responses: count('responses'),
       blobs: count('blobs'),
       media: count('media', 'WHERE hash IS NOT NULL'),
+      mediaPending: this.hasTable('media_queue') ? count('media_queue') : 0,
       otus: count('otus'),
       sources: count('sources'),
       news: count('news'),

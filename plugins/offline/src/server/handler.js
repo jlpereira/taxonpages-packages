@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs'
 import { canonicalKey, keyFor, normalizePath } from '../params.js'
 import { rewriteUrls } from '../rewrite.js'
 import { saveMedia } from '../media.js'
-import { answerSearch } from './search.js'
+import { serve } from '../recipes/index.js'
 
 const NOT_AVAILABLE = {
   success: false,
@@ -42,7 +42,7 @@ export function createHandlers({ config, store, remote, logMiss, logger = consol
     const key = canonicalKey(url.pathname, url.searchParams)
 
     try {
-      const searched = answerSearch(path, url.searchParams, store)
+      const searched = serve(path, url.searchParams, store)
       if (searched) return sendJson(res, searched.status, searched.data, searched.headers, req)
 
       const media = store.getMedia(key)

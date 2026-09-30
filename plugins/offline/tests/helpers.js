@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, realpathSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach } from 'vitest'
+import sharp from 'sharp'
 import { OfflineStore } from '../src/store.js'
 
 const created = []
@@ -64,6 +65,13 @@ export function fakeFetch(routes, { base = 'https://tw.example.org/api/v1' } = {
   }
 
   return { fetch, calls }
+}
+
+/** A JPEG of the given size, with some detail so it compresses like a photo. */
+export function jpeg(width, height) {
+  const noise = Buffer.alloc(width * height * 3)
+  for (let i = 0; i < noise.length; i += 1) noise[i] = (i * 7919) % 251
+  return sharp(noise, { raw: { width, height, channels: 3 } }).jpeg({ quality: 95 }).toBuffer()
 }
 
 /** Write files (path relative to root → content) under a directory. */

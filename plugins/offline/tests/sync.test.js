@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { dirname, join } from 'node:path'
 import { createRequire } from 'node:module'
 import { runSync } from '../src/sync/sync.js'
-import { panelsInLayout, isAvailableForRank } from '../src/sync/recipes.js'
+import { loadPackageRecipes } from '../src/sync/packageRecipes.js'
+import { panelsInLayout, isAvailableForRank } from '../src/sync/layout.js'
 import { RemoteClient } from '../src/remote.js'
 import { resolveOfflineConfig } from '../src/config.js'
-import { tempStore, tempDir, fakeFetch, writeFiles } from './helpers.js'
+import { canonicalKey, serializeParams } from '../src/params.js'
+import { tempStore, tempDir, fakeFetch, writeFiles, jpeg } from './helpers.js'
 
 const require = createRequire(import.meta.url)
 const packageRoot = dirname(require.resolve('@sfgrp/taxonpages/package.json'))
@@ -72,7 +74,7 @@ function tree(key) {
   return { data: {} }
 }
 
-async function sync(store, fetch, { roots = [1], fresh = false, signal, projectRoot = tempDir(), site = configuration, offline = {} } = {}) {
+async function sync(store, fetch, { roots = [1], fresh = false, missing = false, signal, projectRoot = tempDir(), site = configuration, offline = {} } = {}) {
   const config = { ...resolveOfflineConfig({ ...site, offline: { roots, media: false, ...offline } }, '/tmp') }
   const remote = new RemoteClient({ url: SOURCE, token: 't', requestsPerSecond: 10000, retries: 0, fetch })
 
@@ -84,6 +86,7 @@ async function sync(store, fetch, { roots = [1], fresh = false, signal, projectR
     packageRoot,
     projectRoot,
     fresh,
+    missing,
     signal,
     logger: { info() {}, warn() {}, error() {} }
   })
@@ -172,6 +175,100 @@ describe('runSync', () => {
     expect(again.calls).toContain('otus/1?extend[]=parents')
   })
 
+  it('downloads media apart from the pages, and keeps what is left for the next run', async () => {
+    const IMAGE = 'https://img.example.org/2.jpg'
+    const routes = (key) => {
+      if (key.startsWith('otus/2/inventory/images.json')) return { data: { images: { 1: { thumb: IMAGE } } } }
+      if (key === IMAGE) return { body: Buffer.from('jpg') }
+      return tree(key)
+    }
+    const store = tempStore()
+
+    const first = fakeFetch(routes)
+    const offline = (url, init) => (url === IMAGE ? Promise.reject(new TypeError('fetch failed')) : first.fetch(url, init))
+    const result = await sync(store, offline, { offline: { media: true } })
+
+    // The pages do not wait for their media, nor fail with them.
+    expect(result).toMatchObject({ phase: 'completed', done: 3, failed: 0, media: 0 })
+    expect(store.queuedMedia()).toEqual([{ key: IMAGE, url: IMAGE, field: 'thumb' }])
+
+    const again = await sync(store, fakeFetch(routes).fetch, { offline: { media: true } })
+
+    expect(again.media).toBe(1)
+    expect(store.queuedMedia()).toEqual([])
+    expect(store.getMedia(IMAGE).hash).toBeTruthy()
+  })
+
+  it('converts full-size images as configured, and not the other sizes', async () => {
+    const FULL = 'images/5/scale_to_box/0/0/1200/600/1200/600'
+    const THUMB = 'https://img.example.org/t5.jpg'
+    const [full, thumb] = await Promise.all([jpeg(1200, 600), jpeg(100, 50)])
+    const { fetch } = fakeFetch((key) => {
+      if (key.startsWith('otus/2/inventory/images.json')) {
+        return { data: { images: { 5: { original_png: `/api/v1/${FULL}`, thumb: THUMB } } } }
+      }
+      if (key === FULL) return { body: full }
+      if (key === THUMB) return { body: thumb }
+      return tree(key)
+    })
+    const store = tempStore()
+
+    const result = await sync(store, fetch, { offline: { media: true, images: { format: 'webp', max_size: 400 } } })
+
+    expect(store.getMedia(FULL).content_type).toBe('image/webp')
+    expect(store.getMedia(FULL).size).toBeLessThan(full.length)
+    expect(store.getMedia(THUMB).content_type).toBe('image/jpeg')
+    expect(result.converted).toMatchObject({ files: 1, bytesBefore: full.length })
+  })
+
+  it('times a run across the sessions of a resumed one', async () => {
+    const store = tempStore()
+    const controller = new AbortController()
+    const first = fakeFetch(tree)
+
+    await sync(store, (url, init) => {
+      if (url.includes('otus/2')) controller.abort()
+      return first.fetch(url, init)
+    }, { signal: controller.signal })
+
+    // As if the first session had taken a minute.
+    store.setMeta('sync.run', { ...store.getMeta('sync.run'), elapsedMs: 60000 })
+
+    const resumed = await sync(store, fakeFetch(tree).fetch)
+
+    expect(resumed.phase).toBe('completed')
+    expect(resumed.elapsed).toBeGreaterThanOrEqual(60000)
+    expect(store.getMeta('sync.run').elapsedMs).toBe(resumed.elapsed)
+
+    // A new run starts its own clock.
+    const next = await sync(store, fakeFetch(tree).fetch)
+    expect(next.elapsed).toBeLessThan(60000)
+  })
+
+  it('stores every page of a paginated list', async () => {
+    const store = tempStore()
+    const { fetch, calls } = fakeFetch((key) => {
+      const page = key.match(/^sources\?.*page=(\d+)/)
+      if (page) return { data: [{ id: Number(page[1]), cached: `Source ${page[1]}` }], headers: { 'pagination-total-pages': '3' } }
+      return tree(key)
+    })
+
+    await sync(store, fetch)
+
+    expect(calls.filter((c) => c.startsWith('sources?'))).toHaveLength(3)
+    expect(store.querySources({ page: 1, per: 10 }).total).toBe(3)
+  })
+
+  it('syncs the pages when project-wide data fails, and fetches it again next run', async () => {
+    const store = tempStore()
+    const { fetch } = fakeFetch((key) => (key === 'stats' ? { status: 500, data: {} } : tree(key)))
+
+    const result = await sync(store, fetch)
+
+    expect(result).toMatchObject({ phase: 'completed', done: 3, failed: 0 })
+    expect(store.getMeta('sync.project_done_run')).toBeUndefined()
+  })
+
   it('records a failing OTU and carries on', async () => {
     const store = tempStore()
     const { fetch } = fakeFetch((key) => (key.startsWith('otus/3?') ? { status: 500, data: {} } : tree(key)))
@@ -180,6 +277,114 @@ describe('runSync', () => {
 
     expect(result).toMatchObject({ done: 2, failed: 1 })
     expect(store.stats().failedOtus).toBe(1)
+  })
+})
+
+describe('datasets', () => {
+  const IMAGE = 'images/abc?extend[]=attribution&extend[]=depictions&extend[]=source'
+  const THUMB = 'https://img.example.org/abc.jpg'
+
+  /** Species 2 maps a specimen (with two images, one elsewhere) and a field occurrence. */
+  function withPoints(key) {
+    if (key === 'otus/2/inventory/distribution.geojson') {
+      return {
+        data: {
+          type: 'FeatureCollection',
+          features: [
+            { properties: { base: { type: 'CollectionObject', id: 50 } } },
+            { properties: { base: { type: 'FieldOccurrence', id: 60 } } },
+            { properties: { base: { type: 'AssertedDistribution', id: 70 } } }
+          ]
+        }
+      }
+    }
+    if (key === 'collection_objects/50/dwc') {
+      return { data: { catalogNumber: 'X1', associatedMedia: `${SOURCE}/images/abc | https://elsewhere.org/img/1` } }
+    }
+    if (key === 'field_occurrences/60/dwc') return { data: { eventDate: '2020-01-01' } }
+    if (key === IMAGE) return { data: { id: 1, thumb: THUMB } }
+    if (key === THUMB) return { body: Buffer.from('jpg') }
+    return tree(key)
+  }
+
+  const dwcCalls = (calls) => calls.filter((c) => /dwc$|^images\//.test(c)).sort()
+
+  it('leaves the map point details out unless included', async () => {
+    const { fetch, calls } = fakeFetch(withPoints)
+    await sync(tempStore(), fetch)
+    expect(dwcCalls(calls)).toEqual([])
+  })
+
+  it('stores the table of every map point, and the images it lists', async () => {
+    const store = tempStore()
+    const { fetch, calls } = fakeFetch(withPoints)
+
+    await sync(store, fetch, { offline: { media: true, include: { 'map:dwc': true } } })
+
+    // Only API images: the site loads the other from the network anyway.
+    expect(dwcCalls(calls)).toEqual(['collection_objects/50/dwc', 'field_occurrences/60/dwc', IMAGE])
+    expect(store.getResponse('collection_objects/50/dwc').data.catalogNumber).toBe('X1')
+    // Found again by the key the site asks with, from the rewritten link plus
+    // the token DwcCategories.js appends.
+    const asked = canonicalKey('/images/abc', [
+      ['project_token', 't'],
+      ...serializeParams({ extend: ['attribution', 'depictions', 'source'] })
+    ])
+    expect(store.getResponse(asked).data.id).toBe(1)
+    expect(store.getMedia(THUMB).hash).toBeTruthy()
+
+    const sizes = store.datasetSizes()
+    expect(sizes['map:dwc'].items).toBe(3)
+    expect(sizes['media:thumb'].items).toBe(1)
+    expect(sizes.page.items).toBeGreaterThan(0)
+  })
+
+  it('does not fetch a panel left out', async () => {
+    const { fetch, calls } = fakeFetch(tree)
+
+    await sync(tempStore(), fetch, { offline: { include: { 'panel:gallery': false, 'project:bibliography': false } } })
+
+    expect(calls.some((c) => c.includes('inventory/images'))).toBe(false)
+    expect(calls.some((c) => c.startsWith('sources?'))).toBe(false)
+    expect(calls.some((c) => c.includes('inventory/content'))).toBe(true)
+  })
+
+  it('adds a dataset fetching only what is missing', async () => {
+    const store = tempStore()
+    await sync(store, fakeFetch(withPoints).fetch)
+
+    const second = fakeFetch(withPoints)
+    const result = await sync(store, second.fetch, { missing: true, offline: { include: { 'map:dwc': true } } })
+
+    expect(result).toMatchObject({ phase: 'completed', missing: true, failed: 0 })
+    // Nothing stored is fetched again; the empty bibliography and news of
+    // this project are listed again, having nothing stored.
+    const fetched = second.calls.filter((c) => !/^(sources|news)\?/.test(c)).sort()
+    expect(fetched).toEqual(dwcCalls(second.calls))
+    expect(fetched).toHaveLength(3)
+  })
+
+  it('prunes what only datasets left out need', async () => {
+    const store = tempStore()
+    const include = { 'map:dwc': true }
+    await sync(store, fakeFetch(withPoints).fetch, { offline: { media: true, include } })
+
+    const { pruneDatasets } = await import('../src/prune.js')
+    const { resolveDatasets } = await import('../src/datasets.js')
+    const { default: { datasets: mapDatasets } } = await import('../src/recipes/panels/map.js')
+    const datasets = resolveDatasets({
+      panels: ['panel:map'],
+      recipeDatasets: mapDatasets,
+      include: { 'map:dwc': false, 'media:thumb': false }
+    })
+
+    const result = pruneDatasets({ store, datasets })
+
+    expect(result).toMatchObject({ responses: 3, media: 1, files: 1 })
+    expect(store.getResponse('collection_objects/50/dwc')).toBeNull()
+    expect(store.getMedia(THUMB)).toBeNull()
+    // Pages are kept, and still read back whole.
+    expect(store.getResponse(canonicalKey('/otus/2', serializeParams({ extend: ['parents'] }))).data.id).toBe(2)
   })
 })
 
@@ -217,10 +422,14 @@ describe('recipes from packages', () => {
       'package.json': '{}',
       'panels/PanelEty/main.js': 'export default {}',
       'panels/PanelEty/offline.js': `
-        export const panel = 'panel:ety'
-        export const rankGroup = ['SpeciesGroup']
-        export async function otu(ctx, binds) {
-          await ctx.get('/taxon_name_classifications', { taxon_name_id: ctx.taxonId, per: binds[0].per })
+        export default {
+          panel: 'panel:ety',
+          rankGroup: ['SpeciesGroup'],
+          hooks: {
+            async otu(ctx, binds) {
+              await ctx.get('/taxon_name_classifications', { taxon_name_id: ctx.taxonId, per: binds[0].per })
+            }
+          }
         }`
     })
     const { fetch, calls } = fakeFetch(tree)
@@ -234,21 +443,27 @@ describe('recipes from packages', () => {
     ])
   })
 
-  it('runs recipes without a panel on every OTU, and project recipes once', async () => {
+  it('runs recipes without a panel on every OTU, and project recipes once, given the site', async () => {
     const projectRoot = tempDir()
     writeFiles(projectRoot, {
       'package.json': JSON.stringify({ dependencies: { 'taxonpages-module-home': '1.0.0' } }),
       'modules/scrutiny/router/index.js': 'export default []',
       'modules/scrutiny/offline.js': `
-        export async function otu(ctx) { await ctx.get('/data_attributes', { attribute_subject_id: ctx.otuId }) }`,
+        export default {
+          hooks: { async otu(ctx) { await ctx.get('/data_attributes', { attribute_subject_id: ctx.otuId }) } }
+        }`,
       'node_modules/taxonpages-module-home/package.json': JSON.stringify({
         name: 'taxonpages-module-home',
         version: '1.0.0',
         taxonpages: { type: 'module', offline: './sync/recipe.js' }
       }),
       'node_modules/taxonpages-module-home/src/router/index.js': 'export default []',
+      // A function: it receives the site, and reads its configuration.
       'node_modules/taxonpages-module-home/sync/recipe.js': `
-        export async function project(ctx) { await ctx.get('/taxon_names', { per: 3 }) }`
+        export default async function ({ configuration }) {
+          const per = configuration.i18n.locales.length + 1
+          return { hooks: { async project(ctx) { await ctx.get('/taxon_names', { per }) } } }
+        }`
     })
     const { fetch, calls } = fakeFetch(tree)
 
@@ -264,8 +479,7 @@ describe('recipes from packages', () => {
       'package.json': '{}',
       'panels/PanelMap/main.js': 'export default {}',
       'panels/PanelMap/offline.js': `
-        export const panel = 'panel:map'
-        export async function otu(ctx) { await ctx.get('/my/map/' + ctx.otuId) }`
+        export default { panel: 'panel:map', hooks: { async otu(ctx) { await ctx.get('/my/map/' + ctx.otuId) } } }`
     })
     const { fetch, calls } = fakeFetch(tree)
 
@@ -280,7 +494,7 @@ describe('recipes from packages', () => {
     writeFiles(projectRoot, {
       'package.json': '{}',
       'panels/PanelBad/main.js': 'export default {}',
-      'panels/PanelBad/offline.js': `export async function otu() { throw new Error('boom') }`
+      'panels/PanelBad/offline.js': `export default { hooks: { async otu() { throw new Error('boom') } } }`
     })
     const store = tempStore()
     const warnings = []
@@ -310,13 +524,43 @@ describe('recipes from packages', () => {
         taxonpages: { type: 'panel', offline: '../outside.js' }
       }),
       'node_modules/taxonpages-panel-evil/src/main.js': 'export default {}',
-      'node_modules/outside.js': `export async function project(ctx) { await ctx.get('/pwned') }`
+      'node_modules/outside.js': `export default { hooks: { async project(ctx) { await ctx.get('/pwned') } } }`
     })
     const { fetch, calls } = fakeFetch(tree)
 
     await sync(tempStore(), fetch, { projectRoot })
 
     expect(calls).not.toContain('pwned')
+  })
+
+  it('warns about recipes that would silently never run', async () => {
+    const projectRoot = tempDir()
+    writeFiles(projectRoot, {
+      'package.json': '{}',
+      'panels/PanelNamed/main.js': 'export default {}',
+      'panels/PanelNamed/offline.js': `export const panel = 'panel:named'; export async function otu() {}`,
+      'panels/PanelTypo/main.js': 'export default {}',
+      'panels/PanelTypo/offline.js': `export default { panel: 'panel:typo', hooks: { otus() {} } }`,
+      'panels/PanelFlat/main.js': 'export default {}',
+      'panels/PanelFlat/offline.js': `export default { panel: 'panel:flat', otu() {} }`
+    })
+    const warnings = []
+
+    const recipes = await loadPackageRecipes({
+      projectRoot,
+      packageRoot,
+      configuration,
+      logger: { warn: (message) => warnings.push(message) }
+    })
+
+    expect(recipes.panels.size).toBe(0)
+    expect(warnings).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/PanelNamed: .*by name; export the recipe by default/),
+        expect.stringMatching(/PanelTypo: unknown hook `otus`\. Did you mean `otu`\?/),
+        expect.stringMatching(/PanelFlat: unknown `otu` .*hooks go under `hooks`/)
+      ])
+    )
   })
 })
 

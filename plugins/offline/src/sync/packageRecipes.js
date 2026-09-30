@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { join, relative, resolve, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { HOOKS, RECIPE_KEYS, normalizeRecipe, resolveRecipe } from './recipeShape.js'
 
 // `.mjs` for packages whose package.json does not say "type": "module".
 const DEFAULT_FILES = ['offline.js', 'offline.mjs']
@@ -9,26 +10,40 @@ const DEFAULT_FILES = ['offline.js', 'offline.mjs']
  * Recipes shipped by other packages: panels, modules and plugins that request
  * data the core recipes know nothing about.
  *
- * A package opts in with an `offline.js` (or `offline.mjs`) at its root, or at the path named by
- * `taxonpages.offline` in its package.json. Every export is optional:
+ * A package opts in with an `offline.js` (or `offline.mjs`) at its root, or at
+ * the path named by `taxonpages.offline` in its package.json, whose default
+ * export describes its recipe (see recipeShape.js):
  *
- *   // The panel id, as main.js declares it. main.js imports .vue files and
- *   // cannot be loaded here, so the id is repeated.
- *   export const panel = 'panel:etymology'
+ *   export default {
+ *     // The panel id, as main.js declares it. main.js imports .vue files and
+ *     // cannot be loaded here, so the id is repeated.
+ *     panel: 'panel:etymology',
  *
- *   // Ranks the panel is limited to by default, as in main.js.
- *   export const rankGroup = ['SpeciesGroup']
+ *     // Ranks the panel is limited to by default, as in main.js.
+ *     rankGroup: ['SpeciesGroup'],
  *
- *   // Once per OTU page. With `panel`, only where the layout shows the panel,
- *   // receiving its localized `bind` values; without, on every OTU page.
- *   export async function otu(ctx, binds) {
- *     await ctx.get('/taxon_name_classifications', { taxon_name_id: ctx.taxonId })
+ *     // Parts of what the hooks fetch that a site can leave out
+ *     // (`offline.include`); the hooks ask `ctx.includes(id)`.
+ *     datasets: [{ id: 'etymology:citations', label: 'Etymology citations', default: false }],
+ *
+ *     hooks: {
+ *       // Once per OTU page. With `panel`, only where the layout shows the
+ *       // panel, receiving its localized `bind` values; without, on every
+ *       // OTU page.
+ *       async otu(ctx, binds) {
+ *         await ctx.get('/taxon_name_classifications', { taxon_name_id: ctx.taxonId })
+ *       },
+ *
+ *       // Once per sync, for data outside OTU pages.
+ *       async project(ctx) {
+ *         await ctx.get('/stats')
+ *       }
+ *     }
  *   }
  *
- *   // Once per sync, for data outside OTU pages.
- *   export async function project(ctx) {
- *     await ctx.get('/stats')
- *   }
+ * The default export can also be a function, maybe async, that receives the
+ * site (`{ configuration, projectRoot }`) and returns the recipe: to read the
+ * site's configuration, or to prepare something once.
  *
  * Packages are found the way the site finds them (local folders and direct
  * NPM dependencies, minus `packages.disabled`), so only code the site already
@@ -50,37 +65,49 @@ export async function loadPackageRecipes({ projectRoot, packageRoot, configurati
     disabled: configuration.packages?.disabled
   })
 
-  const recipes = { panels: new Map(), everyOtu: [], project: [] }
+  const recipes = { panels: new Map(), everyOtu: [], project: [], datasets: [] }
+  const warn = (message) => logger.warn(message)
 
   for (const descriptor of all) {
     const file = recipeFile(descriptor)
     if (!file) continue
 
-    let mod
+    const source = descriptor.name
+    let recipe
+
     try {
-      mod = await import(pathToFileURL(file).href)
+      const mod = await import(pathToFileURL(file).href)
+      const definition = await resolveRecipe(mod, { configuration, projectRoot })
+
+      if (definition === null) {
+        const named = Object.keys(mod).filter((key) => [...RECIPE_KEYS, ...HOOKS].includes(key))
+        warn(
+          named.length
+            ? `${source}: offline.js exports ${named.join(', ')} by name; export the recipe by default instead (export default { ${named.includes('panel') ? 'panel, ' : ''}hooks: { … } })`
+            : `${source}: offline.js has no default export`
+        )
+        continue
+      }
+
+      recipe = normalizeRecipe(definition, { source, warn })
     } catch (err) {
-      logger.warn(`${descriptor.name}: could not load ${file}: ${err.message}`)
+      warn(`${source}: could not load ${file}: ${err.message}`)
       continue
     }
 
-    const source = descriptor.name
+    if (!recipe) continue
 
-    if (typeof mod.otu === 'function') {
-      if (typeof mod.panel === 'string' && mod.panel) {
-        recipes.panels.set(mod.panel, {
-          source,
-          recipe: mod.otu,
-          rankGroup: Array.isArray(mod.rankGroup) ? mod.rankGroup : []
-        })
+    if (recipe.hooks.otu) {
+      if (recipe.panel) {
+        recipes.panels.set(recipe.panel, { source, recipe: recipe.hooks.otu, rankGroup: recipe.rankGroup })
       } else {
-        recipes.everyOtu.push({ source, recipe: mod.otu })
+        recipes.everyOtu.push({ source, recipe: recipe.hooks.otu })
       }
     }
 
-    if (typeof mod.project === 'function') {
-      recipes.project.push({ source, recipe: mod.project })
-    }
+    if (recipe.hooks.project) recipes.project.push({ source, recipe: recipe.hooks.project })
+
+    for (const dataset of recipe.datasets) recipes.datasets.push({ ...dataset, source })
   }
 
   return recipes
@@ -91,6 +118,7 @@ export async function loadPackageRecipes({ projectRoot, packageRoot, configurati
  * @property {Map<string, { source: string, recipe: Function, rankGroup: string[] }>} panels
  * @property {Array<{ source: string, recipe: Function }>} everyOtu
  * @property {Array<{ source: string, recipe: Function }>} project
+ * @property {Array<{ id: string, label?: string, description?: string, default?: boolean, source: string }>} datasets
  */
 
 /**

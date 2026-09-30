@@ -4,8 +4,8 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, toRaw } from 'vue'
-import { createElement } from 'react'
-import { createRoot } from 'react-dom/client'
+/* import { createElement } from 'react'
+import { createRoot } from 'react-dom/client' */
 
 const props = defineProps({
   component: {

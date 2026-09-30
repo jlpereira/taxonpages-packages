@@ -1,4 +1,4 @@
-import react from '@vitejs/plugin-react'
+//import react from '@vitejs/plugin-react'
 
 export default function () {
   return {
@@ -6,8 +6,8 @@ export default function () {
 
     vite() {
       return {
-        plugins: [react()],
-        optimizeDeps: { include: ['react', 'react-dom'] }
+        /*         plugins: [react()],
+        optimizeDeps: { include: ['react', 'react-dom'] } */
       }
     }
   }

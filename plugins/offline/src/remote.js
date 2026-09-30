@@ -8,31 +8,52 @@ const RETRY_STATUS = new Set([429, 502, 503, 504])
 /**
  * Client for the remote TaxonWorks API, shared by the sync and the proxy mode.
  *
- * Requests are spaced to stay under `requestsPerSecond` however many are in
- * flight, and transient failures (network errors, 429, 502-504) are retried
- * with exponential backoff, honoring Retry-After when the server sends it.
+ * Two limits pace the requests, either or both:
+ *   - `maxInFlight`: at most that many requests at once. The next one is sent
+ *     as soon as one is answered, so the pace follows how fast the server
+ *     answers: quick answers free their place quickly, a slow one holds only
+ *     its own, and a busy server is sent fewer.
+ *   - `requestsPerSecond`: requests spaced to stay under that rate, however
+ *     long the answers take.
+ *
+ * Transient failures (network errors, 429, 502-504) are retried with
+ * exponential backoff, honoring Retry-After when the server sends it. A
+ * request keeps its place while it waits to retry, so a struggling server is
+ * not sent more.
  */
 export class RemoteClient {
   /**
    * @param {object} options
    * @param {string} options.url - API base, e.g. https://sfg.taxonworks.org/api/v1
    * @param {string} options.token - Project token
-   * @param {number} [options.requestsPerSecond]
+   * @param {number} [options.requestsPerSecond] - 0: no limit
+   * @param {number} [options.maxInFlight] - 0: no limit
    * @param {number} [options.retries]
    * @param {number} [options.timeout] - Per request, in ms
    * @param {typeof fetch} [options.fetch]
    */
-  constructor({ url, token, requestsPerSecond = 8, retries = 3, timeout = 120000, fetch = globalThis.fetch }) {
+  constructor({
+    url,
+    token,
+    requestsPerSecond = 8,
+    maxInFlight = 0,
+    retries = 3,
+    timeout = 120000,
+    fetch = globalThis.fetch
+  }) {
     if (!url) throw new Error('No TaxonWorks API url configured (config/api.yml)')
 
     this.url = url.replace(/\/+$/, '')
     this.token = token
-    this.interval = 1000 / requestsPerSecond
+    this.interval = requestsPerSecond > 0 ? 1000 / requestsPerSecond : 0
+    this.maxInFlight = maxInFlight > 0 ? maxInFlight : Infinity
     this.retries = retries
     this.timeout = timeout
     this.fetch = fetch
     this.nextSlot = 0
     this.requestCount = 0
+    this.inFlight = 0
+    this.waiting = []
   }
 
   /**
@@ -57,8 +78,8 @@ export class RemoteClient {
    * @param {string} path
    * @param {object} [params]
    */
-  get(path, params) {
-    return this.request(path, serializeParams(params))
+  get(path, params, options) {
+    return this.request(path, serializeParams(params), options)
   }
 
   /**
@@ -66,28 +87,49 @@ export class RemoteClient {
    *
    * @param {string} path
    * @param {Array<[string, string]>} pairs
+   * @param {{ signal?: AbortSignal }} [options]
    * @returns {Promise<RemoteResponse>}
    */
-  async request(path, pairs = []) {
-    return this.fetchUrl(this.buildUrl(path, pairs), path)
+  async request(path, pairs = [], options) {
+    return this.fetchUrl(this.buildUrl(path, pairs), path, options)
   }
 
   /**
    * GET an absolute URL (media files) with the same pacing and retries.
    *
+   * With a `signal`, a request still waiting for its place or its slot when
+   * the signal is aborted is not sent: many requests queue behind the
+   * pacing, and stopping should not have to wait for all of them.
+   *
    * @param {string} url
+   * @param {string} [pathHint]
+   * @param {{ signal?: AbortSignal }} [options]
    * @returns {Promise<RemoteResponse>}
    */
-  async fetchUrl(url, pathHint = url) {
+  async fetchUrl(url, pathHint = url, { signal } = {}) {
     // Files served through the API (original images) need the token too.
     if (url.startsWith(`${this.url}/`) && this.token && !/[?&]project_token=/.test(url)) {
       url += `${url.includes('?') ? '&' : '?'}project_token=${encodeURIComponent(this.token)}`
     }
 
+    await this.acquire(signal)
+
+    // The place is held until the body is read: a large answer still
+    // downloading is still a request in flight.
+    try {
+      return await this.send(url, pathHint, signal)
+    } finally {
+      this.release()
+    }
+  }
+
+  /** Send a request in the place it holds, retrying transient failures. */
+  async send(url, pathHint, signal) {
     let attempt = 0
 
     for (;;) {
       await this.waitForSlot()
+      signal?.throwIfAborted()
 
       try {
         const response = await this.fetch(url, {
@@ -113,7 +155,45 @@ export class RemoteClient {
     }
   }
 
+  /**
+   * Wait for a place among the requests in flight. Rejects, and gives up its
+   * turn, when the signal is aborted first.
+   *
+   * @param {AbortSignal} [signal]
+   */
+  acquire(signal) {
+    signal?.throwIfAborted()
+
+    if (this.inFlight < this.maxInFlight) {
+      this.inFlight += 1
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve, reject) => {
+      const waiter = () => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }
+      const onAbort = () => {
+        this.waiting.splice(this.waiting.indexOf(waiter), 1)
+        reject(signal.reason)
+      }
+
+      signal?.addEventListener('abort', onAbort, { once: true })
+      this.waiting.push(waiter)
+    })
+  }
+
+  /** Free a place: handed straight to the next request waiting, if any. */
+  release() {
+    const next = this.waiting.shift()
+    if (next) next()
+    else this.inFlight -= 1
+  }
+
   async waitForSlot() {
+    if (!this.interval) return
+
     const now = Date.now()
     const slot = Math.max(now, this.nextSlot)
     this.nextSlot = slot + this.interval

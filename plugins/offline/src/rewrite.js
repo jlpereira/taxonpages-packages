@@ -12,6 +12,9 @@ import { API_PREFIX, MEDIA_PREFIX } from './config.js'
  *   - An absolute URL whose file was downloaded (thumbnails, sounds) becomes
  *     the local copy.
  *
+ * A string holding several URLs separated by `|` (DwC `associatedMedia`
+ * lists one per image) has each of them pointed here, keeping the separators.
+ *
  * Anything else is left alone, so what was not downloaded still loads from
  * the network when there is one.
  *
@@ -23,17 +26,26 @@ import { API_PREFIX, MEDIA_PREFIX } from './config.js'
 export function rewriteUrls(value, { sourceUrl, findMedia }) {
   const apiPrefix = sourceUrl ? `${sourceUrl}/` : null
 
-  function rewrite(text) {
-    if (!text.startsWith('http')) return text
-
-    const media = findMedia?.(text)
+  function rewriteUrl(url) {
+    const media = findMedia?.(url)
     if (media?.hash) return `${MEDIA_PREFIX}/${media.hash}`
 
-    if (apiPrefix && text.startsWith(apiPrefix)) {
-      return `${API_PREFIX}/${text.slice(apiPrefix.length)}`
+    if (apiPrefix && url.startsWith(apiPrefix)) {
+      return `${API_PREFIX}/${url.slice(apiPrefix.length)}`
     }
 
+    return url
+  }
+
+  function rewrite(text) {
+    if (!text.startsWith('http')) return text
+    if (!text.includes('|')) return rewriteUrl(text)
+
+    // Split keeping the separators and their spacing: `a | b` → [a, ' | ', b]
     return text
+      .split(/(\s*\|\s*)/)
+      .map((part, i) => (i % 2 === 0 && part.startsWith('http') ? rewriteUrl(part) : part))
+      .join('')
   }
 
   function walk(node) {

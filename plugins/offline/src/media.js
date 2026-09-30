@@ -25,28 +25,32 @@ const API_PATH = '/api/v1/'
  *
  * Returns the key the site will request it by — an API key for files served
  * through the API (`original_png` is a path the site appends to its API url),
- * the absolute URL otherwise — and the URL to download it from.
+ * the absolute URL otherwise — the URL to download it from, and the field it
+ * was found in (the first one, if several refer to the same file).
  *
  * @param {unknown} data - Parsed response
  * @param {object} options
  * @param {string} options.sourceUrl - Remote API base, no trailing slash
- * @returns {Array<{ key: string, url: string }>}
+ * @returns {Array<{ key: string, url: string, field: string }>}
  */
 export function collectMedia(data, { sourceUrl }) {
   const found = new Map()
   const apiPrefix = `${sourceUrl}/`
   const origin = new URL(sourceUrl).origin
 
-  function add(value) {
+  function add(value, field) {
     if (typeof value !== 'string' || !value) return
 
+    const set = (key, url) => {
+      if (!found.has(key)) found.set(key, { url, field })
+    }
+
     if (value.startsWith(API_PATH)) {
-      const path = value.slice(API_PATH.length)
-      found.set(apiKey(path), `${origin}${value}`)
+      set(apiKey(value.slice(API_PATH.length)), `${origin}${value}`)
     } else if (value.startsWith(apiPrefix)) {
-      found.set(apiKey(value.slice(apiPrefix.length)), value)
+      set(apiKey(value.slice(apiPrefix.length)), value)
     } else if (/^https?:\/\//.test(value)) {
-      found.set(value, value)
+      set(value, value)
     }
   }
 
@@ -55,7 +59,7 @@ export function collectMedia(data, { sourceUrl }) {
       node.forEach(walk)
     } else if (node && typeof node === 'object') {
       for (const [k, v] of Object.entries(node)) {
-        if (MEDIA_FIELDS.has(k) && typeof v === 'string') add(v)
+        if (MEDIA_FIELDS.has(k) && typeof v === 'string') add(v, k)
         else walk(v)
       }
     }
@@ -63,7 +67,7 @@ export function collectMedia(data, { sourceUrl }) {
 
   walk(data)
 
-  return [...found].map(([key, url]) => ({ key, url }))
+  return [...found].map(([key, { url, field }]) => ({ key, url, field }))
 }
 
 /** The key an API-served file is requested by, without its query. */

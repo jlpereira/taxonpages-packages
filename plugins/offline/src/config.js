@@ -8,6 +8,9 @@ export const MEDIA_PREFIX = '/offline/media'
 
 export const MODES = ['strict', 'proxy']
 
+/** What downloaded images can be converted to. `original` keeps them as sent. */
+export const IMAGE_FORMATS = ['original', 'webp', 'jpeg', 'avif']
+
 /**
  * How a geographic area matches, mapped to TaxonWorks' `geo_mode`:
  *   exact        the area itself (geo_mode omitted)
@@ -15,6 +18,17 @@ export const MODES = ['strict', 'proxy']
  *   spatial      anything georeferenced within the area's shape
  */
 export const GEO_MODES = { exact: undefined, descendants: false, spatial: true }
+
+/**
+ * How the sync paces its requests to TaxonWorks:
+ *   adaptive  a few at a time, the next as soon as one is answered: as fast as
+ *             TaxonWorks answers, slower on its own when it is busy
+ *   fixed     the same number every second, however long the answers take
+ */
+export const PACINGS = ['adaptive', 'fixed']
+
+/** OTU pages synced at once, at least: enough to keep the requests busy. */
+const MIN_PAGES = 16
 
 const DEFAULTS = {
   enabled: false,
@@ -27,9 +41,19 @@ const DEFAULTS = {
   geo_mode: 'descendants',
   include_ancestors: false,
   media: true,
+  images: {
+    format: 'original',
+    quality: 80,
+    max_size: 0,
+    fields: ['original_png']
+  },
   sync: {
-    concurrency: 4,
+    pacing: 'adaptive',
+    parallel_requests: 8,
+    max_requests_per_second: 20,
     requests_per_second: 8,
+    parallel_downloads: 4,
+    downloads_per_second: 8,
     retries: 3
   }
 }
@@ -43,7 +67,6 @@ const DEFAULTS = {
  */
 export function resolveOfflineConfig(configuration = {}, projectRoot = process.cwd()) {
   const raw = configuration.offline || {}
-  const sync = { ...DEFAULTS.sync, ...(raw.sync || {}) }
   const database = resolve(projectRoot, raw.database || DEFAULTS.database)
   const dataDir = dirname(database)
 
@@ -60,14 +83,10 @@ export function resolveOfflineConfig(configuration = {}, projectRoot = process.c
     geoMode: Object.hasOwn(GEO_MODES, raw.geo_mode) ? raw.geo_mode : DEFAULTS.geo_mode,
     includeAncestors: raw.include_ancestors === true,
     media: raw.media !== false,
-    sync: {
-      concurrency: positiveInt(sync.concurrency, DEFAULTS.sync.concurrency),
-      requestsPerSecond: positiveNumber(
-        sync.requests_per_second,
-        DEFAULTS.sync.requests_per_second
-      ),
-      retries: positiveInt(sync.retries, DEFAULTS.sync.retries)
-    },
+    // Datasets included or left out by id (see datasets.js).
+    include: toFlags(raw.include),
+    images: resolveImages(raw.images),
+    sync: resolveSync(raw.sync),
     source: {
       url: stripTrailingSlash(configuration.url),
       token: configuration.project_token || ''
@@ -110,6 +129,92 @@ export function describeScope({ roots = [], geographicAreas = [], geoMode, inclu
   return includeAncestors ? `${text}, with their ancestors` : text
 }
 
+/**
+ * How the sync paces its requests (`offline.sync`), resolved into the options
+ * of its two remote clients: one for the API, one for media downloads.
+ *
+ * Adaptive keeps up to `parallel_requests` requests waiting on TaxonWorks, and
+ * sends the next as soon as one is answered, with `max_requests_per_second`
+ * as a ceiling (0: none). Media downloads are only limited by
+ * `parallel_downloads`.
+ *
+ * Fixed sends `requests_per_second` requests every second, and media
+ * `downloads_per_second`, `parallel_downloads` at most at once.
+ *
+ * @param {object} [raw] - `offline.sync`
+ */
+function resolveSync(raw = {}) {
+  const defaults = DEFAULTS.sync
+  const pacing = PACINGS.includes(raw.pacing) ? raw.pacing : defaults.pacing
+  const parallelRequests = positiveInt(raw.parallel_requests, defaults.parallel_requests)
+  const maxRequestsPerSecond = nonNegativeNumber(raw.max_requests_per_second, defaults.max_requests_per_second)
+  const requestsPerSecond = positiveNumber(raw.requests_per_second, defaults.requests_per_second)
+  const parallelDownloads = positiveInt(raw.parallel_downloads, defaults.parallel_downloads)
+  const downloadsPerSecond = positiveNumber(raw.downloads_per_second, defaults.downloads_per_second)
+  const adaptive = pacing === 'adaptive'
+
+  return {
+    pacing,
+    parallelRequests,
+    maxRequestsPerSecond,
+    requestsPerSecond,
+    parallelDownloads,
+    downloadsPerSecond,
+    retries: positiveInt(raw.retries, defaults.retries),
+
+    // Options of the remote clients (remote.js)
+    api: adaptive
+      ? { maxInFlight: parallelRequests, requestsPerSecond: maxRequestsPerSecond }
+      : { maxInFlight: 0, requestsPerSecond },
+    media: { maxInFlight: 0, requestsPerSecond: adaptive ? 0 : downloadsPerSecond },
+
+    // Each page waits on a few requests at a time: with fewer pages than
+    // requests allowed, the pacing would never be reached.
+    pages: Math.max(MIN_PAGES, adaptive ? parallelRequests * 2 : Math.ceil(requestsPerSecond * 2))
+  }
+}
+
+/**
+ * One line describing the pacing of a sync, for its log.
+ *
+ * @param {ReturnType<typeof resolveSync>} sync
+ */
+export function describePacing(sync) {
+  const downloads = `${sync.parallelDownloads} download${sync.parallelDownloads === 1 ? '' : 's'} at a time`
+
+  if (sync.pacing === 'fixed') {
+    return `fixed, ${sync.requestsPerSecond} requests per second; ${downloads}, ${sync.downloadsPerSecond} per second`
+  }
+
+  const ceiling = sync.maxRequestsPerSecond ? `, at most ${sync.maxRequestsPerSecond} per second` : ''
+
+  return `adaptive, ${sync.parallelRequests} requests at a time${ceiling}; ${downloads}`
+}
+
+/**
+ * How downloaded images are converted before they are stored.
+ *
+ * @param {object} [raw] - `offline.images`
+ * @returns {{ format: string, quality: number, maxSize: number, fields: string[] }}
+ */
+function resolveImages(raw = {}) {
+  const defaults = DEFAULTS.images
+  const quality = Number(raw.quality)
+  const fields = Array.isArray(raw.fields) ? raw.fields.filter((f) => typeof f === 'string' && f) : defaults.fields
+
+  return {
+    format: IMAGE_FORMATS.includes(raw.format) ? raw.format : defaults.format,
+    quality: Number.isInteger(quality) && quality >= 1 && quality <= 100 ? quality : defaults.quality,
+    maxSize: Number.isInteger(Number(raw.max_size)) && Number(raw.max_size) > 0 ? Number(raw.max_size) : 0,
+    fields: fields.length ? fields : defaults.fields
+  }
+}
+
+function toFlags(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => typeof v === 'boolean'))
+}
+
 function toIdList(value) {
   const list = Array.isArray(value) ? value : value == null ? [] : [value]
 
@@ -124,6 +229,11 @@ function positiveInt(value, fallback) {
 function positiveNumber(value, fallback) {
   const n = Number(value)
   return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+function nonNegativeNumber(value, fallback) {
+  const n = Number(value)
+  return value !== null && value !== '' && Number.isFinite(n) && n >= 0 ? n : fallback
 }
 
 function stripTrailingSlash(url) {

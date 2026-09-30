@@ -38,8 +38,12 @@
             :value="settings.mode || 'strict'"
             @change="set('mode', $event.target.value)"
           >
-            <option value="strict">Answer "not available" (fully offline)</option>
-            <option value="proxy">Fetch it from TaxonWorks (cache proxy)</option>
+            <option value="strict">
+              Answer "not available" (fully offline)
+            </option>
+            <option value="proxy">
+              Fetch it from TaxonWorks (cache proxy)
+            </option>
           </select>
         </label>
 
@@ -90,9 +94,82 @@
           />
           <span>
             Download images and sounds
-            <span class="text-base-soft">(only the sizes the site displays)</span>
+            <span class="text-base-soft"
+              >(only the sizes the site displays)</span
+            >
           </span>
         </label>
+      </div>
+
+      <div
+        v-if="settings.media !== false"
+        class="space-y-2"
+      >
+        <div class="grid gap-4 sm:grid-cols-3">
+          <label class="block text-sm">
+            <span class="font-medium">Full-size images</span>
+            <select
+              class="tp-select mt-1.5 w-full"
+              :value="images.format || 'original'"
+              @change="setImages('format', $event.target.value)"
+            >
+              <option value="original">Keep as downloaded</option>
+              <option value="webp">Convert to WebP</option>
+              <option value="jpeg">Convert to JPEG</option>
+              <option value="avif">
+                Convert to AVIF (smallest, much slower)
+              </option>
+            </select>
+          </label>
+
+          <template v-if="images.format && images.format !== 'original'">
+            <label class="block text-sm">
+              <span class="font-medium">Quality (1–100)</span>
+              <input
+                type="number"
+                min="1"
+                max="100"
+                class="tp-input mt-1.5 w-full"
+                :value="images.quality ?? 80"
+                @input="
+                  setImages('quality', Number($event.target.value) || undefined)
+                "
+              />
+            </label>
+
+            <label class="block text-sm">
+              <span class="font-medium">Longest side, in pixels</span>
+              <input
+                type="number"
+                min="0"
+                class="tp-input mt-1.5 w-full"
+                :value="images.max_size || ''"
+                placeholder="Keep the size"
+                @input="
+                  setImages(
+                    'max_size',
+                    Number($event.target.value) || undefined
+                  )
+                "
+              />
+            </label>
+          </template>
+        </div>
+        <p
+          v-if="images.format === 'avif' && !images.max_size"
+          class="text-xs text-warning"
+        >
+          AVIF at full size can take about a minute per full-size image. Set a
+          longest side (2048 takes about 10 seconds), or use WebP, which takes
+          under a second.
+        </p>
+        <p
+          v-if="images.format && images.format !== 'original'"
+          class="text-xs text-base-soft"
+        >
+          Applies to images downloaded from now on. To convert the ones already
+          in the database, run <code>taxonpages offline:images</code>.
+        </p>
       </div>
     </div>
 
@@ -200,7 +277,10 @@
             :key="id"
             class="flex items-center justify-between gap-3 rounded-lg bg-base-muted px-3 py-2 text-sm"
           >
-            <span>Geographic area <span class="text-base-soft">#{{ id }}</span></span>
+            <span
+              >Geographic area
+              <span class="text-base-soft">#{{ id }}</span></span
+            >
             <button
               class="tp-btn tp-btn-ghost tp-btn-sm"
               @click="removeArea(id)"
@@ -238,9 +318,13 @@
             :value="settings.geo_mode || 'descendants'"
             @change="set('geo_mode', $event.target.value)"
           >
-            <option value="descendants">The areas and the areas inside them (a country and its states)</option>
+            <option value="descendants">
+              The areas and the areas inside them (a country and its states)
+            </option>
             <option value="exact">Only the areas themselves</option>
-            <option value="spatial">Anything georeferenced within the areas' shapes</option>
+            <option value="spatial">
+              Anything georeferenced within the areas' shapes
+            </option>
           </select>
         </label>
 
@@ -261,13 +345,16 @@
               v-if="preview.sample.length"
               class="text-base-soft"
             >
-              — {{ preview.sample.map((o) => o.label).join('; ') }}{{ preview.total > preview.sample.length ? '…' : '' }}
+              — {{ preview.sample.map((o) => o.label).join('; ')
+              }}{{ preview.total > preview.sample.length ? '…' : '' }}
             </span>
           </template>
         </div>
       </div>
 
-      <label class="flex items-start gap-2.5 text-sm pt-2 border-t border-base-border">
+      <label
+        class="flex items-start gap-2.5 text-sm pt-2 border-t border-base-border"
+      >
         <input
           type="checkbox"
           class="tp-checkbox mt-3.5"
@@ -283,6 +370,246 @@
           </span>
         </span>
       </label>
+    </div>
+
+    <!-- What to store -->
+    <div class="tp-card p-5 sm:p-6 space-y-4">
+      <div>
+        <h3 class="font-semibold text-base-content">What to store</h3>
+        <p class="text-sm text-base-soft mt-1">
+          What is left out is not synced. On the site it shows as not available
+          (strict mode), or is fetched from TaxonWorks (proxy mode). Sizes are
+          what the database holds for each now.
+        </p>
+      </div>
+
+      <p
+        v-if="datasetsError"
+        class="text-sm text-danger"
+      >
+        {{ datasetsError }}
+      </p>
+
+      <div
+        v-for="group in datasetGroups"
+        :key="group.id"
+        class="space-y-2"
+      >
+        <h4 class="text-sm font-medium">{{ group.label }}</h4>
+        <label
+          v-for="dataset in group.datasets"
+          :key="dataset.id"
+          class="flex items-start gap-2.5 text-sm"
+        >
+          <input
+            type="checkbox"
+            class="tp-checkbox mt-0.5"
+            :checked="isIncluded(dataset)"
+            :disabled="
+              dataset.required ||
+              (dataset.group === 'media' && settings.media === false)
+            "
+            @change="setInclude(dataset, $event.target.checked)"
+          />
+          <span class="flex-1">
+            <span class="font-medium">{{ dataset.label }}</span>
+            <span
+              v-if="dataset.source"
+              class="text-base-soft"
+            >
+              ({{ dataset.source }})</span
+            >
+            <span class="block text-xs text-base-soft">{{
+              dataset.description
+            }}</span>
+          </span>
+          <span
+            v-if="dataset.size"
+            class="text-xs text-base-soft whitespace-nowrap"
+          >
+            {{ dataset.size.items }} · {{ formatBytes(dataset.size.bytes) }}
+          </span>
+        </label>
+      </div>
+
+      <div
+        v-if="stats"
+        class="flex flex-wrap items-center gap-2 pt-1"
+      >
+        <button
+          class="tp-btn tp-btn-outline tp-btn-sm"
+          :disabled="!canSync"
+          title="Fetch what the database does not hold yet, such as datasets just included, without syncing the rest again"
+          @click="start(false, true)"
+        >
+          Add what is missing
+        </button>
+        <button
+          class="tp-btn tp-btn-outline tp-btn-sm"
+          :disabled="!canSync || pruning || !prunable"
+          title="Delete what the database holds for the datasets left out"
+          @click="prune"
+        >
+          {{ pruning ? 'Deleting…' : 'Delete what is left out' }}
+        </button>
+        <span
+          v-if="pruneMessage"
+          class="text-xs text-base-soft"
+        >
+          {{ pruneMessage }}
+        </span>
+      </div>
+    </div>
+
+    <!-- Sync speed -->
+    <div class="tp-card p-5 sm:p-6 space-y-4">
+      <div>
+        <h3 class="font-semibold text-base-content">Sync speed</h3>
+        <p class="text-sm text-base-soft mt-1">
+          How fast the sync asks TaxonWorks for data. TaxonWorks serves other
+          people while the sync runs: a faster sync puts more load on it.
+        </p>
+      </div>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label
+          v-for="option in PACING_OPTIONS"
+          :key="option.value"
+          class="flex items-start gap-2.5 rounded-lg border p-3 text-sm cursor-pointer"
+          :class="
+            pacing === option.value
+              ? 'border-secondary-color bg-secondary-light'
+              : 'border-base-border'
+          "
+        >
+          <input
+            type="radio"
+            name="offline-pacing"
+            class="mt-0.5"
+            :checked="pacing === option.value"
+            @change="setSync('pacing', option.value)"
+          />
+          <span>
+            <span class="font-medium">{{ option.label }}</span>
+            <span class="block text-xs text-base-soft mt-0.5">{{
+              option.description
+            }}</span>
+          </span>
+        </label>
+      </div>
+
+      <div
+        v-if="pacing === 'adaptive'"
+        class="grid gap-4 sm:grid-cols-2"
+      >
+        <label class="block text-sm">
+          <span class="font-medium">Requests at a time</span>
+          <select
+            class="tp-select mt-1.5 w-full"
+            :value="parallelRequests"
+            @change="setSync('parallel_requests', Number($event.target.value))"
+          >
+            <option
+              v-for="choice in parallelChoices"
+              :key="choice.value"
+              :value="choice.value"
+            >
+              {{ choice.label }}
+            </option>
+          </select>
+          <span class="block text-xs text-base-soft mt-1">
+            The next request is sent as soon as one is answered, so the sync
+            goes as fast as TaxonWorks answers, and slows down on its own when
+            it is busy.
+          </span>
+        </label>
+
+        <label class="block text-sm">
+          <span class="font-medium">At most, requests per second</span>
+          <input
+            type="number"
+            min="0"
+            class="tp-input mt-1.5 w-full"
+            :value="sync.max_requests_per_second ?? ''"
+            :placeholder="String(DEFAULT_SYNC.max_requests_per_second)"
+            @input="
+              setSync(
+                'max_requests_per_second',
+                numberOrDefault($event.target.value)
+              )
+            "
+          />
+          <span class="block text-xs text-base-soft mt-1">
+            A safety limit, for a site close to the TaxonWorks server, where
+            answers come so quickly that a few at a time can still be many per
+            second. 0 for no limit.
+          </span>
+        </label>
+      </div>
+
+      <label
+        v-else
+        class="block text-sm sm:w-1/2"
+      >
+        <span class="font-medium">Requests per second</span>
+        <input
+          type="number"
+          min="1"
+          class="tp-input mt-1.5 w-full"
+          :value="sync.requests_per_second ?? ''"
+          :placeholder="String(DEFAULT_SYNC.requests_per_second)"
+          @input="
+            setSync('requests_per_second', numberOrDefault($event.target.value))
+          "
+        />
+        <span class="block text-xs text-base-soft mt-1">
+          The same number every second, however long TaxonWorks takes to answer.
+        </span>
+      </label>
+
+      <div
+        v-if="settings.media !== false"
+        class="grid gap-4 sm:grid-cols-2"
+      >
+        <label class="block text-sm">
+          <span class="font-medium"
+            >Images and sounds downloaded at a time</span
+          >
+          <input
+            type="number"
+            min="1"
+            class="tp-input mt-1.5 w-full"
+            :value="sync.parallel_downloads ?? ''"
+            :placeholder="String(DEFAULT_SYNC.parallel_downloads)"
+            @input="
+              setSync(
+                'parallel_downloads',
+                numberOrDefault($event.target.value)
+              )
+            "
+          />
+        </label>
+
+        <label
+          v-if="pacing === 'fixed'"
+          class="block text-sm"
+        >
+          <span class="font-medium">Downloads per second</span>
+          <input
+            type="number"
+            min="1"
+            class="tp-input mt-1.5 w-full"
+            :value="sync.downloads_per_second ?? ''"
+            :placeholder="String(DEFAULT_SYNC.downloads_per_second)"
+            @input="
+              setSync(
+                'downloads_per_second',
+                numberOrDefault($event.target.value)
+              )
+            "
+          />
+        </label>
+      </div>
     </div>
 
     <!-- Database and sync -->
@@ -343,8 +670,10 @@
         <div class="flex justify-between text-sm">
           <span class="font-medium">{{ phaseLabel }}</span>
           <span class="text-base-soft">
-            {{ progress.done + progress.skipped }} / {{ progress.queued || '?' }} OTUs
-            · {{ progress.requests }} requests · {{ progress.media }} media
+            {{ progress.done + progress.skipped }} /
+            {{ progress.queued || '?' }} OTUs · {{ progress.requests }} requests
+            · {{ progress.media }} media ·
+            {{ formatDuration(progress.elapsed) }}
             <template v-if="progress.failed">
               · <span class="text-danger">{{ progress.failed }} failed</span>
             </template>
@@ -390,7 +719,10 @@
         class="text-xs"
       >
         <summary class="cursor-pointer text-base-soft">Sync log</summary>
-        <pre class="mt-2 max-h-48 overflow-auto rounded-lg bg-base-muted p-3 whitespace-pre-wrap">{{ log.join('\n') }}</pre>
+        <pre
+          class="mt-2 max-h-48 overflow-auto rounded-lg bg-base-muted p-3 whitespace-pre-wrap"
+          >{{ log.join('\n') }}</pre
+        >
       </details>
     </div>
 
@@ -398,11 +730,13 @@
     <div class="tp-card p-5 sm:p-6 space-y-4">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h3 class="font-semibold text-base-content">Requests not in the database</h3>
+          <h3 class="font-semibold text-base-content">
+            Requests not in the database
+          </h3>
           <p class="text-sm text-base-soft mt-1">
             <template v-if="settings.log_misses">
-              Recorded while the site runs. Browse the site, then check here
-              for what the sync does not cover.
+              Recorded while the site runs. Browse the site, then check here for
+              what the sync does not cover.
             </template>
             <template v-else>
               Turn on "Record requests the database could not answer" to fill
@@ -444,9 +778,21 @@
             :key="miss.key"
             class="border-t border-base-border"
           >
-            <td class="py-1.5 pr-3 font-mono text-xs break-all">{{ readable(miss.key) }}</td>
+            <td class="py-1.5 pr-3 text-xs break-all">
+              <span class="font-mono">{{ readable(miss.key) }}</span>
+              <span
+                v-if="miss.reason"
+                class="block text-base-soft"
+              >
+                {{ miss.reason }}
+              </span>
+            </td>
             <td class="py-1.5">
-              <span :class="miss.resolved === 'proxy' ? 'text-warning' : 'text-danger'">
+              <span
+                :class="
+                  miss.resolved === 'proxy' ? 'text-warning' : 'text-danger'
+                "
+              >
                 {{ miss.resolved === 'proxy' ? 'Proxied' : 'Missing' }}
               </span>
             </td>
@@ -464,7 +810,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 // This editor runs inside the setup wizard but must not import from it (the
 // site build scans it too), so it talks to the plugin's routes directly.
 const API = '/api/plugins/offline'
-const csrfToken = () => document.querySelector('meta[name="csrf-token"]')?.content
+const csrfToken = () =>
+  document.querySelector('meta[name="csrf-token"]')?.content
 
 const props = defineProps({
   section: { type: Object, required: true },
@@ -476,10 +823,18 @@ const props = defineProps({
 
 const fileName = computed(() => props.section.file)
 const configKey = computed(() => props.section.configKey || 'offline')
-const settings = computed(() => props.configData[fileName.value]?.[configKey.value] || {})
-const roots = computed(() => (Array.isArray(settings.value.roots) ? settings.value.roots : []))
+const settings = computed(
+  () => props.configData[fileName.value]?.[configKey.value] || {}
+)
+const roots = computed(() =>
+  Array.isArray(settings.value.roots) ? settings.value.roots : []
+)
+const images = computed(() => settings.value.images || {})
+const sync = computed(() => settings.value.sync || {})
 const areas = computed(() =>
-  Array.isArray(settings.value.geographic_areas) ? settings.value.geographic_areas : []
+  Array.isArray(settings.value.geographic_areas)
+    ? settings.value.geographic_areas
+    : []
 )
 
 const status = ref(null)
@@ -487,6 +842,10 @@ const progress = ref(null)
 const running = ref(false)
 const log = ref([])
 const misses = ref([])
+const datasets = ref([])
+const datasetsError = ref('')
+const pruning = ref(false)
+const pruneMessage = ref('')
 const scope = ref('project')
 const term = ref('')
 const results = ref([])
@@ -503,13 +862,19 @@ const stats = computed(() => status.value?.database?.stats || null)
 const run = computed(() => status.value?.database?.run || null)
 const resumable = computed(() => Boolean(run.value && !run.value.completedAt))
 const canSync = computed(
-  () => !running.value && !props.hasUnsavedChanges(fileName.value) && Boolean(status.value?.config.source)
+  () =>
+    !running.value &&
+    !props.hasUnsavedChanges(fileName.value) &&
+    Boolean(status.value?.config.source)
 )
 
 const percent = computed(() => {
   const p = progress.value
   if (!p?.queued) return p?.phase === 'completed' ? 100 : 0
-  return Math.min(100, Math.round(((p.done + p.skipped + p.failed) / p.queued) * 100))
+  return Math.min(
+    100,
+    Math.round(((p.done + p.skipped + p.failed) / p.queued) * 100)
+  )
 })
 
 const phaseLabel = computed(
@@ -518,6 +883,7 @@ const phaseLabel = computed(
       starting: 'Starting…',
       project: 'Syncing project data (OTU list, sources, news)…',
       otus: 'Syncing OTU pages…',
+      media: 'Downloading images and sounds…',
       completed: 'Completed',
       interrupted: 'Stopped — resume to continue'
     })[progress.value?.phase] || progress.value?.phase
@@ -526,10 +892,26 @@ const phaseLabel = computed(
 const statItems = computed(() => {
   const s = stats.value
   return [
-    { label: 'OTUs synced', value: `${s.syncedOtus}${s.failedOtus ? ` (${s.failedOtus} failed)` : ''}` },
+    {
+      label: 'OTUs synced',
+      value: `${s.syncedOtus}${s.failedOtus ? ` (${s.failedOtus} failed)` : ''}`
+    },
     { label: 'Stored responses', value: s.responses },
-    { label: 'Media files', value: `${s.media} · ${formatBytes(s.mediaBytes)}` },
-    { label: 'Database size', value: formatBytes(s.databaseBytes) }
+    {
+      label: 'Media files',
+      value: `${s.media} · ${formatBytes(s.mediaBytes)}`
+    },
+    { label: 'Database size', value: formatBytes(s.databaseBytes) },
+    ...(run.value?.elapsedMs
+      ? [
+          {
+            label: run.value.completedAt
+              ? 'Last sync took'
+              : 'Sync time so far',
+            value: formatDuration(run.value.elapsedMs)
+          }
+        ]
+      : [])
   ]
 })
 
@@ -540,9 +922,151 @@ function set(key, value) {
   props.setConfigValue(fileName.value, configKey.value, next)
 }
 
+function setImages(key, value) {
+  const next = { ...images.value }
+  if (value === undefined) delete next[key]
+  else next[key] = value
+  set('images', Object.keys(next).length ? next : undefined)
+}
+
+// As config.js resolves `offline.sync`; the editor cannot import it.
+const DEFAULT_SYNC = {
+  pacing: 'adaptive',
+  parallel_requests: 8,
+  max_requests_per_second: 20,
+  requests_per_second: 8,
+  parallel_downloads: 4,
+  downloads_per_second: 8
+}
+
+const PACING_OPTIONS = [
+  {
+    value: 'adaptive',
+    label: 'Adaptive (recommended)',
+    description:
+      'A few requests at a time, as fast as TaxonWorks answers them. Slows down on its own when TaxonWorks is busy.'
+  },
+  {
+    value: 'fixed',
+    label: 'Fixed rate',
+    description:
+      'The same number of requests every second. The load is always the same, but slower: most of the time is spent waiting for the next turn.'
+  }
+]
+
+const PARALLEL_CHOICES = [
+  { value: 2, label: '2 — very gentle, for a small or busy TaxonWorks' },
+  { value: 4, label: '4 — gentle, about the load of the fixed rate' },
+  { value: 8, label: '8 — recommended' },
+  {
+    value: 16,
+    label:
+      "16 — fast, for your own TaxonWorks or with its administrators' consent"
+  }
+]
+
+const pacing = computed(() =>
+  sync.value.pacing === 'fixed' ? 'fixed' : DEFAULT_SYNC.pacing
+)
+
+const parallelRequests = computed(() => {
+  const n = Number(sync.value.parallel_requests)
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_SYNC.parallel_requests
+})
+
+/** The choices, plus a value set by hand in offline.yml. */
+const parallelChoices = computed(() =>
+  PARALLEL_CHOICES.some((choice) => choice.value === parallelRequests.value)
+    ? PARALLEL_CHOICES
+    : [
+        ...PARALLEL_CHOICES,
+        {
+          value: parallelRequests.value,
+          label: `${parallelRequests.value} — set in offline.yml`
+        }
+      ]
+)
+
+/** Defaults are left out of the file, so it only says what was changed. */
+function setSync(key, value) {
+  const next = { ...sync.value }
+  if (value === undefined || value === DEFAULT_SYNC[key]) delete next[key]
+  else next[key] = value
+  set('sync', Object.keys(next).length ? next : undefined)
+}
+
+/** A number typed in a field; empty (or not a number) for the default. */
+function numberOrDefault(text) {
+  const n = Number(text)
+  return text === '' || !Number.isFinite(n) || n < 0 ? undefined : n
+}
+
 async function save() {
   await props.saveConfig(fileName.value)
-  await loadStatus()
+  await Promise.all([loadStatus(), loadDatasets()])
+}
+
+const DATASET_GROUPS = [
+  ['core', 'Pages'],
+  ['panels', 'Panels'],
+  ['map', 'Map'],
+  ['project', 'Project'],
+  ['media', 'Images and sounds'],
+  ['packages', 'From packages']
+]
+
+const datasetGroups = computed(() =>
+  DATASET_GROUPS.map(([id, label]) => ({
+    id,
+    label,
+    datasets: datasets.value.filter((dataset) => dataset.group === id)
+  })).filter((group) => group.datasets.length)
+)
+
+/** As the edited (maybe unsaved) settings say, the way datasets.js decides. */
+function isIncluded(dataset) {
+  if (dataset.required) return true
+  if (dataset.group === 'media' && settings.value.media === false) return false
+  return settings.value.include?.[dataset.id] ?? dataset.default
+}
+
+function setInclude(dataset, value) {
+  const next = { ...(settings.value.include || {}) }
+  if (value === dataset.default) delete next[dataset.id]
+  else next[dataset.id] = value
+  set('include', Object.keys(next).length ? next : undefined)
+}
+
+/** Something left out in the saved settings still has data to delete. */
+const prunable = computed(() =>
+  datasets.value.some((dataset) => !dataset.included && dataset.size)
+)
+
+async function loadDatasets() {
+  try {
+    const res = await fetch(`${API}/datasets`)
+    const data = await res.json()
+    if (!res.ok)
+      throw new Error(data.error || 'Could not list what the sync stores')
+    datasets.value = data.datasets
+    datasetsError.value = ''
+  } catch (err) {
+    datasetsError.value = err.message
+  }
+}
+
+async function prune() {
+  pruning.value = true
+  pruneMessage.value = ''
+  try {
+    const result = await post('/prune')
+    pruneMessage.value = `Deleted ${result.responses} responses and ${result.files} files.`
+    await Promise.all([loadStatus(), loadDatasets()])
+  } catch (err) {
+    pruneMessage.value = err.message
+  } finally {
+    pruning.value = false
+  }
 }
 
 function setScope(value) {
@@ -558,7 +1082,10 @@ function addRoot(item) {
 }
 
 function removeRoot(id) {
-  set('roots', roots.value.filter((r) => r !== id))
+  set(
+    'roots',
+    roots.value.filter((r) => r !== id)
+  )
 }
 
 function addArea() {
@@ -570,7 +1097,10 @@ function addArea() {
 }
 
 function removeArea(id) {
-  set('geographic_areas', areas.value.filter((a) => a !== id))
+  set(
+    'geographic_areas',
+    areas.value.filter((a) => a !== id)
+  )
 }
 
 /** Count what the (unsaved) area scope matches, to check the ids. */
@@ -594,15 +1124,29 @@ function loadPreview() {
     try {
       const res = await fetch(`${API}/scope/preview?${query}`)
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Could not count the matching OTUs')
-      preview.value = { loading: false, error: '', total: data.total, sample: data.sample }
+      if (!res.ok)
+        throw new Error(data.error || 'Could not count the matching OTUs')
+      preview.value = {
+        loading: false,
+        error: '',
+        total: data.total,
+        sample: data.sample
+      }
     } catch (err) {
-      preview.value = { loading: false, error: err.message, total: null, sample: [] }
+      preview.value = {
+        loading: false,
+        error: err.message,
+        total: null,
+        sample: []
+      }
     }
   }, 400)
 }
 
-watch(() => [areas.value.join(), roots.value.join(), settings.value.geo_mode], loadPreview)
+watch(
+  () => [areas.value.join(), roots.value.join(), settings.value.geo_mode],
+  loadPreview
+)
 
 function search() {
   clearTimeout(searchTimer)
@@ -615,7 +1159,9 @@ function search() {
 
   searchTimer = setTimeout(async () => {
     try {
-      const res = await fetch(`${API}/otus/search?term=${encodeURIComponent(term.value.trim())}`)
+      const res = await fetch(
+        `${API}/otus/search?term=${encodeURIComponent(term.value.trim())}`
+      )
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Search failed')
       results.value = data
@@ -629,7 +1175,10 @@ function search() {
 async function post(path, body = {}) {
   const res = await fetch(`${API}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-csrf-token': csrfToken() },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-csrf-token': csrfToken()
+    },
     body: JSON.stringify(body)
   })
   const data = await res.json().catch(() => ({}))
@@ -637,13 +1186,17 @@ async function post(path, body = {}) {
   return data
 }
 
-async function start(fresh) {
+async function start(fresh, missing = false) {
   try {
     log.value = []
-    await post('/sync', { fresh })
+    pruneMessage.value = ''
+    await post('/sync', { fresh, missing })
     running.value = true
   } catch (err) {
-    status.value = { ...status.value, sync: { ...status.value.sync, error: err.message } }
+    status.value = {
+      ...status.value,
+      sync: { ...status.value.sync, error: err.message }
+    }
   }
 }
 
@@ -655,7 +1208,8 @@ async function loadStatus() {
   const res = await fetch(`${API}/status`)
   status.value = await res.json()
   running.value = status.value.sync.running
-  progress.value = status.value.sync.progress || status.value.database?.progress || null
+  progress.value =
+    status.value.sync.progress || status.value.database?.progress || null
   log.value = status.value.sync.log || []
 }
 
@@ -682,6 +1236,7 @@ function listen() {
     } else if (event.type === 'finished') {
       running.value = false
       loadStatus()
+      loadDatasets()
     }
   }
 }
@@ -711,6 +1266,19 @@ async function loadRootLabels() {
   )
 }
 
+/** 2h 03m 09s, 3m 09s, 9s */
+function formatDuration(ms = 0) {
+  const total = Math.round(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const pad = (n) => String(n).padStart(2, '0')
+
+  if (h) return `${h}h ${pad(m)}m ${pad(s)}s`
+  if (m) return `${m}m ${pad(s)}s`
+  return `${s}s`
+}
+
 function formatBytes(bytes = 0) {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   let value = bytes
@@ -724,7 +1292,7 @@ function formatBytes(bytes = 0) {
 
 onMounted(async () => {
   if (roots.value.length) scope.value = 'subtree'
-  await Promise.all([loadStatus(), loadMisses()])
+  await Promise.all([loadStatus(), loadMisses(), loadDatasets()])
   listen()
   loadRootLabels()
   loadPreview()

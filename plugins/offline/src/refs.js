@@ -104,6 +104,42 @@ export function deflate(value, putBlob) {
 }
 
 /**
+ * Hashes of the blobs a deflated value refers to directly. The blobs of
+ * `$ref` markers hold deflated JSON and may refer to more.
+ *
+ * @param {unknown} value - A value as `deflate` returned it
+ * @returns {string[]}
+ */
+export function blobRefs(value) {
+  const hashes = []
+
+  function walk(node) {
+    if (Array.isArray(node)) return node.forEach(walk)
+    if (!node || typeof node !== 'object') return
+
+    const keys = Object.keys(node)
+    if (keys.length === 1) {
+      switch (keys[0]) {
+        case '$ref':
+        case '$str':
+          hashes.push(node[keys[0]])
+          return
+        case '$json':
+          return walk(node.$json)
+        case '$esc':
+          return Object.values(node.$esc).forEach(walk)
+      }
+    }
+
+    Object.values(node).forEach(walk)
+  }
+
+  walk(value)
+
+  return hashes
+}
+
+/**
  * Restore a value deflated by `deflate`.
  *
  * @param {unknown} value
