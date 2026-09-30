@@ -6,10 +6,9 @@
         v-for="item in list"
         :key="item.id"
       >
-        <a
-          :href="`/otus/${item.id}`"
-          v-html="item.object_tag"
-        />
+        <RouterLink :to="{ name: 'otus-id', params: { id: item.id } }">
+          <span v-html="item.object_tag" />
+        </RouterLink>
       </li>
     </ul>
   </div>

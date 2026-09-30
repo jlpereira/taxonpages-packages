@@ -119,17 +119,24 @@ export default defineStore('dichotomous', {
     },
 
     async refreshOtus(leadId) {
+      const isCurrent = () => String(this.lead?.id) === String(leadId)
+
+      this.remaining = []
+      this.eliminated = []
+
       makeAPIRequest
         .get(`/leads/${leadId}/remaining_otus.json`)
         .then(({ data }) => {
-          this.remaining = data
+          if (isCurrent()) this.remaining = data || []
         })
+        .catch(() => {})
 
       makeAPIRequest
         .get(`/leads/${leadId}/eliminated_otus.json`)
         .then(({ data }) => {
-          this.eliminated = data || []
+          if (isCurrent()) this.eliminated = data || []
         })
+        .catch(() => {})
     },
 
     async loadKey(id) {

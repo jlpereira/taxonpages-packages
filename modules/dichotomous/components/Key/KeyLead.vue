@@ -45,12 +45,12 @@
 
     <template v-if="lead.linkType === 'otu'">
       ...
-      <a
-        :href="makeBrowseUrl({ id: lead.targetId })"
+      <RouterLink
+        :to="{ name: 'otus-id', params: { id: lead.targetId } }"
         target="_blank"
       >
         {{ lead.targetLabel }}
-      </a>
+      </RouterLink>
     </template>
 
     <template v-else-if="lead.linkType === 'couplet'">
@@ -66,12 +66,12 @@
     <template v-else-if="lead.linkType === 'lead_item_otus'">
       <template v-if="lead.targetId">
         ...&nbsp;
-        <a
-          :href="makeBrowseUrl({ id: lead.targetId })"
+        <RouterLink
+          :to="{ name: 'otus-id', params: { id: lead.targetId } }"
           target="_blank"
         >
           {{ lead.targetLabel }}
-        </a>
+        </RouterLink>
       </template>
 
       <ul
@@ -82,22 +82,22 @@
           v-for="lio in lead.leadItemOtus"
           :key="lio"
         >
-          <a
-            :href="makeBrowseUrl({ id: lio.id })"
+          <RouterLink
+            :to="{ name: 'otus-id', params: { id: lio.id } }"
             target="_blank"
           >
             {{ lio.label }}
-          </a>
+          </RouterLink>
         </li>
       </ul>
       <template v-else>
         ...
-        <a
-          :href="makeBrowseUrl({ id: lead.leadItemOtus[0].id })"
+        <RouterLink
+          :to="{ name: 'otus-id', params: { id: lead.leadItemOtus[0].id } }"
           target="_blank"
         >
           {{ lead.leadItemOtus[0].label }}
-        </a>
+        </RouterLink>
       </template>
     </template>
   </div>
@@ -134,9 +134,5 @@ function moveToLead(couplet) {
 
   emit('scroll:couplet', couplet)
   store.setCurrentLead(leadId)
-}
-
-function makeBrowseUrl({ id }) {
-  return `/otus/${id}`
 }
 </script>
