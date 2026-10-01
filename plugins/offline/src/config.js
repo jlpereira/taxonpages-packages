@@ -30,6 +30,13 @@ export const PACINGS = ['adaptive', 'fixed']
 /** OTU pages synced at once, at least: enough to keep the requests busy. */
 const MIN_PAGES = 16
 
+/**
+ * The default ceiling of adaptive pacing, per request at a time: what each
+ * reaches with answers taking 400 ms. It holds the sync back only when
+ * TaxonWorks answers much faster than that, whatever the requests at a time.
+ */
+const CEILING_PER_REQUEST = 2.5
+
 const DEFAULTS = {
   enabled: false,
   mode: 'strict',
@@ -50,7 +57,6 @@ const DEFAULTS = {
   sync: {
     pacing: 'adaptive',
     parallel_requests: 8,
-    max_requests_per_second: 20,
     requests_per_second: 8,
     parallel_downloads: 4,
     downloads_per_second: 8,
@@ -135,8 +141,8 @@ export function describeScope({ roots = [], geographicAreas = [], geoMode, inclu
  *
  * Adaptive keeps up to `parallel_requests` requests waiting on TaxonWorks, and
  * sends the next as soon as one is answered, with `max_requests_per_second`
- * as a ceiling (0: none). Media downloads are only limited by
- * `parallel_downloads`.
+ * as a ceiling (0: none; by default 2.5 per request at a time). Media
+ * downloads are only limited by `parallel_downloads`.
  *
  * Fixed sends `requests_per_second` requests every second, and media
  * `downloads_per_second`, `parallel_downloads` at most at once.
@@ -147,7 +153,7 @@ function resolveSync(raw = {}) {
   const defaults = DEFAULTS.sync
   const pacing = PACINGS.includes(raw.pacing) ? raw.pacing : defaults.pacing
   const parallelRequests = positiveInt(raw.parallel_requests, defaults.parallel_requests)
-  const maxRequestsPerSecond = nonNegativeNumber(raw.max_requests_per_second, defaults.max_requests_per_second)
+  const maxRequestsPerSecond = nonNegativeNumber(raw.max_requests_per_second, parallelRequests * CEILING_PER_REQUEST)
   const requestsPerSecond = positiveNumber(raw.requests_per_second, defaults.requests_per_second)
   const parallelDownloads = positiveInt(raw.parallel_downloads, defaults.parallel_downloads)
   const downloadsPerSecond = positiveNumber(raw.downloads_per_second, defaults.downloads_per_second)

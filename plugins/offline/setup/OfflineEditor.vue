@@ -531,7 +531,7 @@
             min="0"
             class="tp-input mt-1.5 w-full"
             :value="sync.max_requests_per_second ?? ''"
-            :placeholder="String(DEFAULT_SYNC.max_requests_per_second)"
+            :placeholder="String(defaultCeiling)"
             @input="
               setSync(
                 'max_requests_per_second',
@@ -542,7 +542,8 @@
           <span class="block text-xs text-base-soft mt-1">
             A safety limit, for a site close to the TaxonWorks server, where
             answers come so quickly that a few at a time can still be many per
-            second. 0 for no limit.
+            second. 0 for no limit. Empty, it follows the requests at a time:
+            2.5 per second for each.
           </span>
         </label>
       </div>
@@ -714,6 +715,27 @@
         No database yet.
       </p>
 
+      <div
+        v-if="hasData || wipeMessage"
+        class="flex flex-wrap items-center gap-3"
+      >
+        <button
+          v-if="hasData"
+          class="tp-btn tp-btn-danger tp-btn-sm"
+          :disabled="running || wiping"
+          title="Delete everything synced, the database contents and the media files, to start from nothing"
+          @click="wipe"
+        >
+          {{ wiping ? 'Deleting…' : 'Delete database and media' }}
+        </button>
+        <span
+          v-if="wipeMessage"
+          class="text-xs text-base-soft"
+        >
+          {{ wipeMessage }}
+        </span>
+      </div>
+
       <details
         v-if="log.length"
         class="text-xs"
@@ -846,6 +868,8 @@ const datasets = ref([])
 const datasetsError = ref('')
 const pruning = ref(false)
 const pruneMessage = ref('')
+const wiping = ref(false)
+const wipeMessage = ref('')
 const scope = ref('project')
 const term = ref('')
 const results = ref([])
@@ -860,6 +884,9 @@ let previewTimer = null
 
 const stats = computed(() => status.value?.database?.stats || null)
 const run = computed(() => status.value?.database?.run || null)
+const hasData = computed(() =>
+  Boolean(stats.value && (stats.value.responses || stats.value.media))
+)
 const resumable = computed(() => Boolean(run.value && !run.value.completedAt))
 const canSync = computed(
   () =>
@@ -930,10 +957,10 @@ function setImages(key, value) {
 }
 
 // As config.js resolves `offline.sync`; the editor cannot import it.
+// `max_requests_per_second` has no fixed default: see `defaultCeiling`.
 const DEFAULT_SYNC = {
   pacing: 'adaptive',
   parallel_requests: 8,
-  max_requests_per_second: 20,
   requests_per_second: 8,
   parallel_downloads: 4,
   downloads_per_second: 8
@@ -955,14 +982,12 @@ const PACING_OPTIONS = [
 ]
 
 const PARALLEL_CHOICES = [
-  { value: 2, label: '2 — very gentle, for a small or busy TaxonWorks' },
-  { value: 4, label: '4 — gentle, about the load of the fixed rate' },
+  { value: 2, label: '2 — slowest' },
+  { value: 4, label: '4 — slow' },
   { value: 8, label: '8 — recommended' },
-  {
-    value: 16,
-    label:
-      "16 — fast, for your own TaxonWorks or with its administrators' consent"
-  }
+  { value: 16, label: '16 — fast' },
+  { value: 32, label: '32 — very fast' },
+  { value: 64, label: '64 — fastest' }
 ]
 
 const pacing = computed(() =>
@@ -973,6 +998,9 @@ const parallelRequests = computed(() => {
   const n = Number(sync.value.parallel_requests)
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_SYNC.parallel_requests
 })
+
+/** The ceiling when none is set, as config.js resolves it. */
+const defaultCeiling = computed(() => parallelRequests.value * 2.5)
 
 /** The choices, plus a value set by hand in offline.yml. */
 const parallelChoices = computed(() =>
@@ -1066,6 +1094,30 @@ async function prune() {
     pruneMessage.value = err.message
   } finally {
     pruning.value = false
+  }
+}
+
+async function wipe() {
+  const size = formatBytes(
+    (stats.value?.databaseBytes || 0) + (stats.value?.mediaBytes || 0)
+  )
+  if (
+    !confirm(
+      `Delete the database and the media files (${size})? Everything will have to be synced again.`
+    )
+  )
+    return
+
+  wiping.value = true
+  wipeMessage.value = ''
+  try {
+    await post('/wipe')
+    wipeMessage.value = 'Database and media deleted.'
+    await Promise.all([loadStatus(), loadDatasets()])
+  } catch (err) {
+    wipeMessage.value = err.message
+  } finally {
+    wiping.value = false
   }
 }
 
@@ -1190,6 +1242,7 @@ async function start(fresh, missing = false) {
   try {
     log.value = []
     pruneMessage.value = ''
+    wipeMessage.value = ''
     await post('/sync', { fresh, missing })
     running.value = true
   } catch (err) {

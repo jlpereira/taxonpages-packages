@@ -19,6 +19,7 @@ const quiet = { info() {}, warn() {}, error() {} }
  *   GET  /status          configuration, database contents, sync state
  *   GET  /datasets        what a sync stores, which is included, and its size
  *   POST /prune           delete what datasets left out hold
+ *   POST /wipe            delete everything synced, database and media
  *   POST /sync            start `taxonpages offline:sync` in the background
  *                         ({ fresh } starts over, { missing } adds only what
  *                         is not stored)
@@ -170,6 +171,23 @@ export function registerSetupRoutes(router, { projectRoot, packageRoot }) {
       } finally {
         store.close()
       }
+    } catch (err) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  router.post('/wipe', async (_req, res) => {
+    if (state.child) return res.status(409).json({ error: 'Stop the sync first' })
+
+    try {
+      const { config } = await readConfig()
+      const { wipeDatabase } = await import('./wipe.js')
+      wipeDatabase(config)
+      state.progress = null
+      state.lastResult = null
+      state.error = null
+      state.log = []
+      res.json({ wiped: true })
     } catch (err) {
       res.status(500).json({ error: err.message })
     }

@@ -12,6 +12,7 @@ import { describePacing, describeScope, syncScope } from './config.js'
  *   taxonpages offline:misses [--clear]
  *   taxonpages offline:images
  *   taxonpages offline:prune
+ *   taxonpages offline:wipe --yes
  */
 export function registerCommands(program, { config, configuration, projectRoot, packageRoot, logger }) {
   program
@@ -214,6 +215,26 @@ export function registerCommands(program, { config, configuration, projectRoot, 
         process.exitCode = 1
       } finally {
         store.close()
+      }
+    })
+
+  program
+    .command('offline:wipe')
+    .description('Delete everything synced: the database contents and the media files')
+    .option('--yes', 'confirm the deletion')
+    .action(async (options) => {
+      if (!options.yes) {
+        console.log(`This deletes everything in ${config.database} and ${config.mediaDir}. Run again with --yes to do it.`)
+        return
+      }
+
+      try {
+        const { wipeDatabase } = await import('./wipe.js')
+        wipeDatabase(config)
+        console.log('Database and media deleted. Run `taxonpages offline:sync` to sync again.')
+      } catch (err) {
+        logger.error(err.message)
+        process.exitCode = 1
       }
     })
 

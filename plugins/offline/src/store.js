@@ -557,6 +557,22 @@ export class OfflineStore {
   }
 
   /**
+   * Delete everything stored, keeping the file and its tables: a site server
+   * that has it open sees it empty at once. Media files are not touched.
+   */
+  wipe() {
+    this.transaction(() => {
+      for (const table of ['responses', 'blobs', 'media', 'media_queue', 'dataset_items', 'otus', 'sources', 'news', 'sync_otus', 'meta']) {
+        this.db.exec(`DELETE FROM ${table}`)
+      }
+      this.db.exec("INSERT INTO otus_fts (otus_fts) VALUES ('delete-all')")
+      this.setMeta('schema_version', SCHEMA_VERSION)
+    })
+    this.blobCache.clear()
+    this.db.exec('VACUUM')
+  }
+
+  /**
    * Delete the shared pieces no stored response refers to any more, and
    * reclaim the space.
    *

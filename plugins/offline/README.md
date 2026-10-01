@@ -94,7 +94,7 @@ offline:
   sync:
     pacing: adaptive            # adaptive | fixed
     parallel_requests: 8        # adaptive: requests waiting on TaxonWorks at once
-    max_requests_per_second: 20 # adaptive: a ceiling; 0 for none
+    max_requests_per_second: 20 # adaptive: a ceiling; 0 for none (default: 2.5 × parallel_requests)
     requests_per_second: 8      # fixed: requests sent every second
     parallel_downloads: 4       # images and sounds downloaded at once
     downloads_per_second: 8     # fixed: downloads started every second
@@ -113,6 +113,7 @@ restarted.
 | `taxonpages offline:misses` | Requests the database could not answer, with why when they cannot be synced. `--clear` empties the log. |
 | `taxonpages offline:images` | Convert the images already downloaded, as `images` says. |
 | `taxonpages offline:prune` | Delete what the database holds for datasets left out in `include`. |
+| `taxonpages offline:wipe --yes` | Delete everything synced, the database contents and the media files, to start from nothing. A site server running meanwhile sees the database empty at once. |
 
 A sync can be interrupted with Ctrl+C and resumed by running it again: OTUs
 already done in the run are skipped, and media files not downloaded yet are
@@ -150,9 +151,11 @@ media) took:
 | `adaptive`, 8 at a time, no ceiling | 1m 05s |
 
 Lower `parallel_requests` if TaxonWorks answers with errors or becomes slow
-for its other users while a sync runs; raise it only on your own TaxonWorks
-or with its administrators' consent. Failed requests (busy server, network
-errors) are retried `retries` times, waiting longer each time.
+for its other users while a sync runs. Unless set, `max_requests_per_second`
+follows it: 2.5 per second for each request at a time, what each reaches with
+answers taking 400 ms, so it holds the sync back only when TaxonWorks answers
+faster than that. Failed requests (busy server, network errors) are retried
+`retries` times, waiting longer each time.
 
 Images and sounds are paced apart, so they do not use the API's share:
 `parallel_downloads` at a time, and with `fixed`, `downloads_per_second` at

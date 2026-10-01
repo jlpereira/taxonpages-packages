@@ -120,6 +120,11 @@ describe('offline.sync', () => {
     expect(resolved.parallelDownloads).toBe(4)
   })
 
+  it('scales the default ceiling with the requests at a time', () => {
+    expect(sync({ parallel_requests: 32 }).api).toEqual({ maxInFlight: 32, requestsPerSecond: 80 })
+    expect(sync({ parallel_requests: 32, max_requests_per_second: 30 }).api.requestsPerSecond).toBe(30)
+  })
+
   it('takes the requests at a time and the ceiling, 0 for none', () => {
     expect(sync({ parallel_requests: 4, max_requests_per_second: 0 }).api).toEqual({
       maxInFlight: 4,
