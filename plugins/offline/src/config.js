@@ -1,4 +1,5 @@
 import { resolve, dirname, join } from 'node:path'
+import { conflictingParams, filterToQuery, stripControlParams } from './filterUrl.js'
 
 /** Where the local API is mounted. The site's `url` is pointed here. */
 export const API_PREFIX = '/offline/api/v1'
@@ -46,6 +47,7 @@ const DEFAULTS = {
   roots: [],
   geographic_areas: [],
   geo_mode: 'descendants',
+  otu_filter: {},
   include_ancestors: false,
   media: true,
   images: {
@@ -87,6 +89,8 @@ export function resolveOfflineConfig(configuration = {}, projectRoot = process.c
     roots: toIdList(raw.roots),
     geographicAreas: toIdList(raw.geographic_areas),
     geoMode: Object.hasOwn(GEO_MODES, raw.geo_mode) ? raw.geo_mode : DEFAULTS.geo_mode,
+    // TaxonWorks `/otus` filter, pasted from a filter task (see filterUrl.js).
+    otuFilter: stripControlParams(raw.otu_filter).params,
     includeAncestors: raw.include_ancestors === true,
     media: raw.media !== false,
     // Datasets included or left out by id (see datasets.js).
@@ -109,12 +113,55 @@ export function resolveOfflineConfig(configuration = {}, projectRoot = process.c
  * @param {ReturnType<typeof resolveOfflineConfig>} config
  */
 export function syncScope(config) {
+  const otuFilter = filterToQuery(config.otuFilter)
+
   return {
     roots: config.roots,
     geographicAreas: config.geographicAreas,
     geoMode: config.geographicAreas.length ? config.geoMode : null,
+    // Only when set, so the runs of earlier versions keep their scope.
+    ...(otuFilter ? { otuFilter } : {}),
     includeAncestors: config.includeAncestors
   }
+}
+
+/**
+ * Whether the OTUs in scope are a list from `/otus` (areas, a filter) rather
+ * than subtrees walked down from `roots`.
+ *
+ * @param {{ geographicAreas: number[], otuFilter?: object }} config
+ */
+export function isListScope(config) {
+  return config.geographicAreas.length > 0 || Object.keys(config.otuFilter || {}).length > 0
+}
+
+/**
+ * The `/otus` filter of a list scope: the OTU filter, the geographic areas,
+ * and the taxon names of the roots, all of them at once.
+ *
+ * @param {{ geographicAreas: number[], geoMode: string, otuFilter?: object }} config
+ * @param {number[]} [taxonNameIds] - Of the roots, when there are any
+ * @throws {Error} When the filter sets what the areas or the roots set
+ */
+export function scopeListingParams(config, taxonNameIds = []) {
+  const areas = config.geographicAreas
+  const filter = config.otuFilter || {}
+  const conflicts = conflictingParams(filter, { areas: areas.length > 0, roots: taxonNameIds.length > 0 })
+
+  if (conflicts.length) {
+    const by = areas.length && conflicts.some((key) => key.startsWith('geo_')) ? 'geographic areas' : 'OTUs chosen'
+    throw new Error(`The TaxonWorks filter sets ${conflicts.join(', ')}, which the ${by} set too: remove one or the other`)
+  }
+
+  const params = areas.length
+    ? { geo_shape_id: areas, geo_shape_type: areas.map(() => 'GeographicArea'), geo_mode: GEO_MODES[config.geoMode] }
+    : {}
+
+  Object.assign(params, filter)
+
+  if (taxonNameIds.length) Object.assign(params, { taxon_name_id: taxonNameIds, descendants: true })
+
+  return params
 }
 
 /**
@@ -122,13 +169,15 @@ export function syncScope(config) {
  *
  * @param {ReturnType<typeof syncScope>} scope
  */
-export function describeScope({ roots = [], geographicAreas = [], geoMode, includeAncestors } = {}) {
+export function describeScope({ roots = [], geographicAreas = [], geoMode, otuFilter, includeAncestors } = {}) {
   const parts = []
+  const listed = () => (parts.length ? '' : 'OTUs ')
 
   if (roots.length) parts.push(`subtrees of OTU ${roots.join(', ')}`)
   if (geographicAreas.length) {
-    parts.push(`${roots.length ? 'recorded in' : 'OTUs recorded in'} geographic area ${geographicAreas.join(', ')} (${geoMode})`)
+    parts.push(`${listed()}recorded in geographic area ${geographicAreas.join(', ')} (${geoMode})`)
   }
+  if (otuFilter) parts.push(`${listed()}matching the filter ${otuFilter}`)
 
   const text = parts.length ? parts.join(', ') : 'the whole project'
 

@@ -178,9 +178,9 @@
       <div>
         <h3 class="font-semibold text-base-content">What to include</h3>
         <p class="text-sm text-base-soft mt-1">
-          All taxa, or only those under some OTUs. Add geographic areas to keep
-          only the OTUs recorded in them; with OTUs chosen too, only those
-          within both.
+          All taxa, or only those under some OTUs. Add geographic areas or a
+          TaxonWorks filter to keep only the OTUs they find; together, only
+          the OTUs all of them find.
         </p>
       </div>
 
@@ -327,29 +327,98 @@
             </option>
           </select>
         </label>
+      </div>
+
+      <div class="space-y-3 pt-2 border-t border-base-border">
+        <h4 class="text-sm font-medium pt-3">TaxonWorks filter</h4>
+        <p class="text-sm text-base-soft">
+          Run a filter in TaxonWorks (Filter OTUs, or another filter such as
+          Filter collection objects), copy the URL from the address bar and
+          paste it here. Paging and tokens in the URL are ignored.
+        </p>
+
+        <form
+          class="flex gap-2"
+          @submit.prevent="applyFilterUrl"
+        >
+          <input
+            v-model="filterInput"
+            class="tp-input flex-1"
+            placeholder="https://…/tasks/otus/filter?…"
+            @paste="onFilterPaste"
+          />
+          <button
+            class="tp-btn tp-btn-outline tp-btn-sm"
+            :disabled="!filterInput.trim()"
+          >
+            Use filter
+          </button>
+        </form>
+
+        <p
+          v-if="filterMessage.error"
+          class="text-sm text-danger"
+        >
+          {{ filterMessage.error }}
+        </p>
+        <p
+          v-else-if="filterMessage.text"
+          class="text-sm text-base-soft"
+        >
+          {{ filterMessage.text }}
+        </p>
 
         <div
-          v-if="areas.length"
-          class="text-sm rounded-lg bg-base-muted px-3 py-2"
+          v-if="filterPairs.length"
+          class="space-y-1.5"
         >
-          <template v-if="preview.loading">Counting matching OTUs…</template>
-          <span
-            v-else-if="preview.error"
-            class="text-danger"
-          >
-            {{ preview.error }}
-          </span>
-          <template v-else-if="preview.total !== null">
-            <span class="font-medium">{{ preview.total }} OTUs</span> match
-            <span
-              v-if="preview.sample.length"
-              class="text-base-soft"
+          <ul class="space-y-1.5">
+            <li
+              v-for="([key, value], index) in filterPairs"
+              :key="`${key}=${value}:${index}`"
+              class="flex items-center justify-between gap-3 rounded-lg bg-base-muted px-3 py-2 text-sm"
             >
-              — {{ preview.sample.map((o) => o.label).join('; ')
-              }}{{ preview.total > preview.sample.length ? '…' : '' }}
-            </span>
-          </template>
+              <span class="break-all">
+                {{ key }} <span class="text-base-soft">=</span> {{ value }}
+              </span>
+              <button
+                class="tp-btn tp-btn-ghost tp-btn-sm"
+                @click="removeFilterPair(index)"
+              >
+                Remove
+              </button>
+            </li>
+          </ul>
+          <button
+            class="tp-btn tp-btn-ghost tp-btn-sm"
+            @click="clearFilter"
+          >
+            Clear filter
+          </button>
         </div>
+      </div>
+
+      <div
+        v-if="areas.length || filterPairs.length"
+        class="text-sm rounded-lg bg-base-muted px-3 py-2"
+      >
+        <template v-if="preview.loading">Counting matching OTUs…</template>
+        <span
+          v-else-if="preview.error"
+          class="text-danger"
+        >
+          {{ preview.error }}
+        </span>
+        <template v-else-if="preview.total !== null">
+          <span class="font-medium">{{ preview.total }} OTUs</span> match
+          <span
+            v-if="preview.sample.length"
+            class="text-base-soft"
+          >
+            — {{ preview.sample.map((o) => o.label).join('; ')
+            }}{{ preview.total > preview.sample.length ? '…' : '' }}
+          </span>
+        </template>
       </div>
 
       <label
@@ -828,6 +897,8 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { parseFilterUrl, parseQuery } from '../src/filterUrl.js'
+import { serializeParams } from '../src/params.js'
 
 // This editor runs inside the setup wizard but must not import from it (the
 // site build scans it too), so it talks to the plugin's routes directly.
@@ -858,6 +929,14 @@ const areas = computed(() =>
     ? settings.value.geographic_areas
     : []
 )
+const otuFilter = computed(() => {
+  const value = settings.value.otu_filter
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : {}
+})
+/** The filter as the `key = value` pairs of its URL. */
+const filterPairs = computed(() => serializeParams(otuFilter.value))
 
 const status = ref(null)
 const progress = ref(null)
@@ -876,6 +955,8 @@ const results = ref([])
 const searchError = ref('')
 const labels = ref({})
 const areaInput = ref('')
+const filterInput = ref('')
+const filterMessage = ref({ text: '', error: '' })
 const preview = ref({ loading: false, error: '', total: null, sample: [] })
 
 let events = null
@@ -1155,11 +1236,49 @@ function removeArea(id) {
   )
 }
 
-/** Count what the (unsaved) area scope matches, to check the ids. */
+/** Parse a URL copied from a TaxonWorks filter into `otu_filter`. */
+function applyFilterUrl() {
+  try {
+    const { params, source, ignored } = parseFilterUrl(filterInput.value)
+    const from =
+      source === 'otus'
+        ? 'OTU filter'
+        : `${source.replace(/_/g, ' ')} filter, for the OTUs of what it finds`
+    const skipped = ignored.length ? ` Ignored: ${ignored.join(', ')}.` : ''
+
+    set('otu_filter', params)
+    filterInput.value = ''
+    filterMessage.value = { text: `From the ${from}.${skipped}`, error: '' }
+  } catch (err) {
+    filterMessage.value = { text: '', error: err.message }
+  }
+}
+
+/** Pasting a URL applies it, without a click on the button. */
+function onFilterPaste(event) {
+  const text = event.clipboardData?.getData('text')
+  if (!text) return
+
+  event.preventDefault()
+  filterInput.value = text
+  applyFilterUrl()
+}
+
+function removeFilterPair(index) {
+  const pairs = filterPairs.value.filter((_, i) => i !== index)
+  set('otu_filter', pairs.length ? parseQuery(pairs) : undefined)
+}
+
+function clearFilter() {
+  set('otu_filter', undefined)
+  filterMessage.value = { text: '', error: '' }
+}
+
+/** Count what the (unsaved) list scope matches, to check the ids and filter. */
 function loadPreview() {
   clearTimeout(previewTimer)
 
-  if (!areas.value.length) {
+  if (!areas.value.length && !filterPairs.value.length) {
     preview.value = { loading: false, error: '', total: null, sample: [] }
     return
   }
@@ -1170,7 +1289,8 @@ function loadPreview() {
     const query = new URLSearchParams({
       areas: areas.value.join(','),
       roots: roots.value.join(','),
-      geo_mode: settings.value.geo_mode || 'descendants'
+      geo_mode: settings.value.geo_mode || 'descendants',
+      filter: JSON.stringify(otuFilter.value)
     })
 
     try {
@@ -1196,7 +1316,12 @@ function loadPreview() {
 }
 
 watch(
-  () => [areas.value.join(), roots.value.join(), settings.value.geo_mode],
+  () => [
+    areas.value.join(),
+    roots.value.join(),
+    settings.value.geo_mode,
+    JSON.stringify(otuFilter.value)
+  ],
   loadPreview
 )
 

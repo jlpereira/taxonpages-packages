@@ -3,11 +3,12 @@ import { OfflineStore } from './store.js'
 import { RemoteClient } from './remote.js'
 import { readMisses } from './misses.js'
 import { describePacing, describeScope, syncScope } from './config.js'
+import { parseFilterUrl } from './filterUrl.js'
 
 /**
  * Commands:
  *
- *   taxonpages offline:sync [--root <id...>] [--fresh] [--missing] [--json]
+ *   taxonpages offline:sync [--root <id...>] [--area <id...>] [--filter <url>] [--fresh] [--missing] [--json]
  *   taxonpages offline:status
  *   taxonpages offline:misses [--clear]
  *   taxonpages offline:images
@@ -20,6 +21,7 @@ export function registerCommands(program, { config, configuration, projectRoot, 
     .description('Build or update the local database from the TaxonWorks API')
     .option('--root <ids...>', 'OTU ids to sync the subtrees of (default: offline.roots)')
     .option('--area <ids...>', 'geographic area ids to sync the OTUs recorded in (default: offline.geographic_areas)')
+    .option('--filter <url>', 'TaxonWorks filter URL to sync the OTUs it finds (default: offline.otu_filter)')
     .option('--fresh', 'start a new run instead of resuming an interrupted one')
     .option('--missing', 'fetch only what the database does not hold yet (to add datasets)')
     .option('--json', 'print progress as JSON lines (used by the setup wizard)')
@@ -30,7 +32,8 @@ export function registerCommands(program, { config, configuration, projectRoot, 
       const runConfig = {
         ...config,
         roots: options.root ? ids(options.root) : config.roots,
-        geographicAreas: options.area ? ids(options.area) : config.geographicAreas
+        geographicAreas: options.area ? ids(options.area) : config.geographicAreas,
+        otuFilter: options.filter ? parseFilterUrl(options.filter).params : config.otuFilter
       }
 
       const remote = new RemoteClient({

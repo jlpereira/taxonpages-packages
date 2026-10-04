@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { canonicalKey, serializeParams } from '../params.js'
-import { GEO_MODES, syncScope } from '../config.js'
+import { isListScope, scopeListingParams, syncScope } from '../config.js'
 import { collectMedia, saveMedia } from '../media.js'
 import { stripTags } from '../text.js'
 import { basePage, descendants, withCoreRecipes } from '../recipes/index.js'
@@ -20,8 +20,10 @@ const PROGRESS_INTERVAL = 1000
  * Scope, from `config`:
  *   - nothing set: the whole project
  *   - `roots`: the subtrees under those OTUs, walked down the taxonomy
- *   - `geographicAreas`: the OTUs TaxonWorks finds recorded in those areas;
- *     with `roots` as well, only those within the subtrees
+ *   - `geographicAreas`: the OTUs TaxonWorks finds recorded in those areas
+ *   - `otuFilter`: the OTUs a TaxonWorks `/otus` filter finds
+ *   - areas and filter together: the OTUs both find; with `roots` as well,
+ *     only those within the subtrees
  *   - `includeAncestors`: also the ancestors of every OTU above, so their
  *     breadcrumb links have a page
  *
@@ -193,7 +195,7 @@ export async function runSync({
   progress.phase = 'otus'
 
   // Each queued OTU either walks down to its children (subtree scope) or
-  // stands alone (listed by area or project, or an ancestor).
+  // stands alone (listed by area, filter or project, or an ancestor).
   const queue = []
   const walks = new Map()
   const enqueue = (id, { walk = false } = {}) => {
@@ -203,7 +205,7 @@ export async function runSync({
     progress.queued = walks.size
   }
 
-  const walkTree = config.roots.length > 0 && config.geographicAreas.length === 0
+  const walkTree = config.roots.length > 0 && !isListScope(config)
 
   if (walkTree) config.roots.forEach((id) => enqueue(id, { walk: true }))
   else listedOtuIds.forEach((id) => enqueue(id))
@@ -567,16 +569,16 @@ function createFetchContext({ config, store, remote, run, missing, datasets, med
  * The OTUs in scope when the scope is a list rather than a tree.
  *
  * @returns {Promise<number[]>} The OTUs of the whole project, or of the
- *   geographic areas; empty when the scope is walked down from `roots`.
+ *   geographic areas and filter; empty when the scope is walked down from `roots`.
  */
 async function listScopeOtus({ ctx, config, store, remote, run, logger, signal, onPage }) {
-  const byArea = config.geographicAreas.length > 0
-  const wholeProject = !byArea && config.roots.length === 0
+  const listed = isListScope(config)
+  const wholeProject = !listed && config.roots.length === 0
   const ids = []
 
-  if (!wholeProject && !byArea) return ids
+  if (!wholeProject && !listed) return ids
 
-  const params = byArea ? await areaListingParams(ctx, config, logger) : {}
+  const params = listed ? await listingParams(ctx, config, logger) : {}
   if (!params) return ids
 
   // The whole project is searchable from the start; narrower scopes index
@@ -629,19 +631,12 @@ async function syncProjectData({ ctx, recipes, missing, store, remote, run, logg
 }
 
 /**
- * `/otus` filter for the OTUs recorded in the configured areas, within the
+ * `/otus` filter for the OTUs of the configured areas and filter, within the
  * subtrees of `roots` when there are any. Null when the roots have no taxon
- * name to filter by, so nothing is listed rather than every OTU of the areas.
+ * name to filter by, so nothing is listed rather than every OTU matching.
  */
-async function areaListingParams(ctx, config, logger) {
-  const areas = config.geographicAreas
-  const params = {
-    geo_shape_id: areas,
-    geo_shape_type: areas.map(() => 'GeographicArea'),
-    geo_mode: GEO_MODES[config.geoMode]
-  }
-
-  if (!config.roots.length) return params
+async function listingParams(ctx, config, logger) {
+  if (!config.roots.length) return scopeListingParams(config)
 
   const taxonNameIds = []
   for (const id of config.roots) {
@@ -649,12 +644,12 @@ async function areaListingParams(ctx, config, logger) {
     const taxonNameId = response.status === 200 ? response.data?.taxon_name_id : null
 
     if (taxonNameId) taxonNameIds.push(taxonNameId)
-    else logger.warn(`OTU ${id} has no taxon name: it cannot limit the geographic areas`)
+    else logger.warn(`OTU ${id} has no taxon name: it cannot limit the geographic areas or filter`)
   }
 
   if (!taxonNameIds.length) return null
 
-  return { ...params, taxon_name_id: taxonNameIds, descendants: true }
+  return scopeListingParams(config, taxonNameIds)
 }
 
 /**

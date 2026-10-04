@@ -633,6 +633,42 @@ describe('geographic scope', () => {
   })
 })
 
+describe('filter scope', () => {
+  const pages = (calls) =>
+    calls.filter((c) => /^otus\/\d+\?extend\[\]=parents$/.test(c)).map((c) => Number(c.match(/\d+/)[0])).sort()
+
+  // OTUs tagged 4: species 3 only.
+  const tagged = (key) =>
+    key.startsWith('otus?tag_id')
+      ? { data: [{ id: 3, taxon_name_id: 30, object_tag: 'Taxon 3' }], headers: { 'pagination-total-pages': '1' } }
+      : tree(key)
+
+  it('syncs the OTUs a TaxonWorks filter finds, without walking their subtrees', async () => {
+    const { fetch, calls } = fakeFetch(tagged)
+
+    const result = await sync(tempStore(), fetch, { roots: [], offline: { otu_filter: { tag_id: [4], per: 50 } } })
+
+    expect(calls.find((c) => c.startsWith('otus?tag_id'))).toBe('otus?tag_id[]=4&per=500&page=1')
+    expect(pages(calls)).toEqual([3])
+    expect(result).toMatchObject({ done: 1, failed: 0, scope: { otuFilter: 'tag_id[]=4' } })
+  })
+
+  it('limits a filter to the subtrees of the roots', async () => {
+    const { fetch, calls } = fakeFetch(tagged)
+
+    await sync(tempStore(), fetch, { roots: [1], offline: { otu_filter: { tag_id: [4] } } })
+
+    expect(calls.find((c) => c.startsWith('otus?tag_id'))).toBe('otus?tag_id[]=4&taxon_name_id[]=10&descendants=true&per=500&page=1')
+    expect(pages(calls)).toEqual([1, 3]) // 1 only to read its taxon name
+  })
+
+  it('stops when the filter sets what the roots set', async () => {
+    await expect(
+      sync(tempStore(), fakeFetch(tagged).fetch, { roots: [1], offline: { otu_filter: { taxon_name_id: [99] } } })
+    ).rejects.toThrow('taxon_name_id')
+  })
+})
+
 describe('ancestorIds', () => {
   it('lists the OTU ids of a breadcrumb', async () => {
     const { ancestorIds } = await import('../src/sync/sync.js')

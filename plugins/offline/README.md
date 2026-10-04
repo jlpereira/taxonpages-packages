@@ -7,7 +7,8 @@ API.
 The plugin mounts an API at `/offline/api/v1` that answers the same requests as
 TaxonWorks, with the same responses, and points the site at it. The data comes
 from a sync you run while online: the whole project, the subtrees under the
-OTUs you choose, the OTUs recorded in some geographic areas, or both.
+OTUs you choose, the OTUs recorded in some geographic areas, the OTUs a
+TaxonWorks filter finds, or any of these together.
 
 ## Requirements
 
@@ -72,6 +73,7 @@ offline:
   roots: []              # OTU ids: their subtrees
   geographic_areas: []   # GeographicArea ids: the OTUs recorded in them
   geo_mode: descendants  # exact | descendants | spatial
+  otu_filter: {}         # TaxonWorks /otus filter parameters: the OTUs it finds
   include_ancestors: false
 
   # Download the images and sounds the site displays.
@@ -108,7 +110,7 @@ restarted.
 
 | Command | |
 | --- | --- |
-| `taxonpages offline:sync` | Build or update the database. `--root <id...>` and `--area <id...>` override `roots` and `geographic_areas`; `--fresh` starts over instead of resuming; `--missing` fetches only what the database does not hold yet. |
+| `taxonpages offline:sync` | Build or update the database. `--root <id...>`, `--area <id...>` and `--filter <url>` override `roots`, `geographic_areas` and `otu_filter`; `--fresh` starts over instead of resuming; `--missing` fetches only what the database does not hold yet. |
 | `taxonpages offline:status` | What the database holds, and the last run. |
 | `taxonpages offline:misses` | Requests the database could not answer, with why when they cannot be synced. `--clear` empties the log. |
 | `taxonpages offline:images` | Convert the images already downloaded, as `images` says. |
@@ -168,7 +170,8 @@ most.
 | nothing | Every OTU in the project |
 | `roots` | The OTUs under each root, walking down the taxonomy |
 | `geographic_areas` | The OTUs TaxonWorks finds recorded in the areas |
-| both | The OTUs recorded in the areas, within the subtrees of the roots |
+| `otu_filter` | The OTUs a TaxonWorks filter finds |
+| several | The OTUs all of them find: in the areas, matching the filter, within the subtrees of the roots |
 
 An OTU is recorded in an area when it has an asserted distribution there, or a
 specimen collected there. `geo_mode` sets how an area matches:
@@ -188,6 +191,40 @@ distribution and specimens.
 The TaxonWorks API has no search for geographic areas, so areas are given by
 id, as TaxonWorks shows it. The setup wizard counts the OTUs an area matches,
 with a few of their names, as you add it: the way to check an id is right.
+
+### TaxonWorks filter
+
+`otu_filter` holds the parameters of the TaxonWorks `/otus` filter. In the
+setup wizard, run a filter in TaxonWorks, copy the URL from the address bar and
+paste it under *TaxonWorks filter*: it is parsed into `otu_filter`.
+
+The URL of another filter works too, when TaxonWorks can filter OTUs by it
+(collection objects, taxon names, biological associations, asserted
+distributions, images, sources…): its parameters are nested under its
+subquery, for the OTUs of what it finds. A collection object filter
+
+```
+https://tw.example.org/tasks/collection_objects/filter?collecting_event_query[country]=Argentina&per=50
+```
+
+becomes
+
+```yaml
+otu_filter:
+  collection_object_query:
+    collecting_event_query:
+      country: Argentina
+```
+
+Paging, tokens and response shape (`per`, `page`, `paginate`,
+`project_token`, `token`, `extend`, `embed`, `venn`…) are dropped at every
+level, from the URL and from `otu_filter` edited by hand: the sync pages and
+authenticates on its own. With geographic areas, the filter cannot set
+`geo_shape_id`, `geo_shape_type` or `geo_mode`; with roots, `taxon_name_id` or
+`descendants`: the sync stops and says so.
+
+Like a geographic scope, a filter is a list of OTUs, not a tree. The wizard
+counts what it matches as you paste it.
 
 ## What is synced
 

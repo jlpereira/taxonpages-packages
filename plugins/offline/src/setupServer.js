@@ -2,7 +2,8 @@ import { spawn } from 'node:child_process'
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { GEO_MODES, resolveOfflineConfig } from './config.js'
+import { GEO_MODES, isListScope, resolveOfflineConfig, scopeListingParams } from './config.js'
+import { stripControlParams } from './filterUrl.js'
 import { OfflineStore } from './store.js'
 import { RemoteClient } from './remote.js'
 import { readMisses } from './misses.js'
@@ -28,7 +29,7 @@ const quiet = { info() {}, warn() {}, error() {} }
  *   GET  /misses          summarized miss log
  *   POST /misses/clear    empty the miss log
  *   GET  /otus/search     find an OTU on the remote API, to pick a root
- *   GET  /scope/preview   how many OTUs the areas (and roots) match
+ *   GET  /scope/preview   how many OTUs the areas and filter (and roots) match
  *
  * The sync runs as a child process of the CLI rather than inside the wizard,
  * so it behaves exactly as from a terminal and keeps running on its own terms.
@@ -69,6 +70,7 @@ export function registerSetupRoutes(router, { projectRoot, packageRoot }) {
         roots: config.roots,
         geographicAreas: config.geographicAreas,
         geoMode: config.geoMode,
+        otuFilter: config.otuFilter,
         includeAncestors: config.includeAncestors,
         source: config.source.url,
         hasToken: Boolean(config.source.token)
@@ -263,10 +265,10 @@ export function registerSetupRoutes(router, { projectRoot, packageRoot }) {
 }
 
 /**
- * Preview of an area scope, from the settings being edited (not yet saved):
- *   ?areas=1,2&roots=3&geo_mode=descendants
+ * Preview of a list scope, from the settings being edited (not yet saved):
+ *   ?areas=1,2&roots=3&geo_mode=descendants&filter={"tag_id":[4]}
  * There is no area search in the API, so this is how an area id is checked:
- * by what it matches.
+ * by what it matches. The same goes for a filter pasted from TaxonWorks.
  */
 function registerScopePreview(router, readConfig) {
   router.get('/scope/preview', async (req, res) => {
@@ -276,36 +278,43 @@ function registerScopePreview(router, readConfig) {
         .map(Number)
         .filter((n) => Number.isInteger(n) && n > 0)
 
-    const areas = list(req.query.areas)
-    const roots = list(req.query.roots)
-    const geoMode = Object.hasOwn(GEO_MODES, req.query.geo_mode) ? req.query.geo_mode : 'descendants'
+    let otuFilter
+    try {
+      otuFilter = stripControlParams(req.query.filter ? JSON.parse(req.query.filter) : {}).params
+    } catch {
+      return res.status(400).json({ error: 'The filter is not valid JSON' })
+    }
 
-    if (!areas.length) return res.json({ total: null, sample: [] })
+    const scope = {
+      geographicAreas: list(req.query.areas),
+      geoMode: Object.hasOwn(GEO_MODES, req.query.geo_mode) ? req.query.geo_mode : 'descendants',
+      otuFilter
+    }
+    const roots = list(req.query.roots)
+
+    if (!isListScope(scope)) return res.json({ total: null, sample: [] })
 
     const { config } = await readConfig()
     if (!config.source.url) return res.status(400).json({ error: 'No API URL configured' })
 
     try {
       const remote = new RemoteClient({ url: config.source.url, token: config.source.token, retries: 0, timeout: 30000 })
-      const params = {
-        geo_shape_id: areas,
-        geo_shape_type: areas.map(() => 'GeographicArea'),
-        geo_mode: GEO_MODES[geoMode],
-        per: 5,
-        page: 1
+
+      const taxonNameIds = []
+      for (const id of roots) {
+        const response = await remote.get(`/otus/${id}`)
+        if (response.status === 200 && response.data?.taxon_name_id) taxonNameIds.push(response.data.taxon_name_id)
+      }
+      if (roots.length && !taxonNameIds.length) return res.json({ total: 0, sample: [] })
+
+      let params
+      try {
+        params = scopeListingParams(scope, taxonNameIds)
+      } catch (err) {
+        return res.status(400).json({ error: err.message })
       }
 
-      if (roots.length) {
-        const taxonNameIds = []
-        for (const id of roots) {
-          const response = await remote.get(`/otus/${id}`)
-          if (response.status === 200 && response.data?.taxon_name_id) taxonNameIds.push(response.data.taxon_name_id)
-        }
-        if (!taxonNameIds.length) return res.json({ total: 0, sample: [] })
-        Object.assign(params, { taxon_name_id: taxonNameIds, descendants: true })
-      }
-
-      const response = await remote.get('/otus', params)
+      const response = await remote.get('/otus', { ...params, per: 5, page: 1 })
       if (response.status !== 200 || !Array.isArray(response.data)) {
         return res.status(502).json({ error: `TaxonWorks answered ${response.status}` })
       }
